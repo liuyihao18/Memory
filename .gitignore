@@ -1,0 +1,39 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build and package metadata
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.conda/
+
+# Local generated assets and render outputs
+output/
+examples/output/
+examples/photos/
+*.mp4
+*.mov
+*.m4v
+*.webm
+
+# Logs and local runtime state
+*.log
+*.pid
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
