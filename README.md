@@ -23,13 +23,13 @@ python examples/create_demo_assets.py
 再渲染示例视频：
 
 ```bash
-photo-memory-video render --input examples/demo.yaml --output output/demo.mp4
+photo-memory-video render --input examples/demo.yaml --output examples/output/demo.mp4
 ```
 
 也可以直接使用模块入口：
 
 ```bash
-python -m photo_memory_video render --input examples/demo.yaml --output output/demo.mp4
+python -m photo_memory_video render --input examples/demo.yaml --output examples/output/demo.mp4
 ```
 
 ## Web UI
@@ -37,7 +37,7 @@ python -m photo_memory_video render --input examples/demo.yaml --output output/d
 启动本地编排界面：
 
 ```bash
-photo-memory-video web --input examples/demo.yaml --output output/demo.mp4
+photo-memory-video web --input examples/demo.yaml --output examples/output/demo.mp4
 ```
 
 默认地址是：
@@ -56,6 +56,23 @@ http://127.0.0.1:8765
 - 从本地图片目录批量导入
 - 按场景和自动分页预览画面
 - 触发 MP4 渲染并显示进度
+
+## 本地工作区
+
+建议把自己的照片、编排配置和渲染结果放在 `workspace/`，这个目录不会进入 Git：
+
+```text
+workspace/
+  photos/
+  output/
+  memory.yaml
+```
+
+启动针对本地工作区的 Web UI：
+
+```bash
+photo-memory-video web --input workspace/memory.yaml --output workspace/output/memory.mp4
+```
 
 ## 配置格式
 
