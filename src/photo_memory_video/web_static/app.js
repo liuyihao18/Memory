@@ -2,7 +2,11 @@ let state = null;
 let selectedScene = 0;
 let busy = false;
 let draggedPhotoIndex = null;
+let previewTimer = null;
+let previewInFlight = false;
+let previewPending = false;
 const selectedPageByScene = {};
+const LIVE_PREVIEW_DELAY = 450;
 
 const el = (id) => document.getElementById(id);
 
@@ -127,10 +131,10 @@ function renderSceneEditor() {
     }
   );
   form.append(
-    field("场景标题", textInput(scene.title || "", (value) => (scene.title = value))),
-    field("时长", numberInput(scene.duration || 6, 0.5, (value) => (scene.duration = value))),
+    field("场景标题", textInput(scene.title || "", (value) => (scene.title = value), true)),
+    field("时长", numberInput(scene.duration || 6, 0.5, (value) => (scene.duration = value), 0, null, true)),
     field("布局", layoutInput),
-    field("场景描述", textarea(scene.description || "", (value) => (scene.description = value)))
+    field("场景描述", textarea(scene.description || "", (value) => (scene.description = value), true))
   );
 
   const wallSettings = scene.layout === "photo_wall" ? renderWallSettings(scene) : null;
@@ -227,9 +231,9 @@ function photoCard(photo, index) {
     photo.mediaUrl = mediaUrl(value);
     image.src = photo.mediaUrl;
   });
-  const timeInput = textInput(photo.time || "", (value) => (photo.time = value));
-  const captionInput = textInput(photo.caption || "", (value) => (photo.caption = value));
-  const descriptionInput = textarea(photo.description || "", (value) => (photo.description = value));
+  const timeInput = textInput(photo.time || "", (value) => (photo.time = value), true);
+  const captionInput = textInput(photo.caption || "", (value) => (photo.caption = value), true);
+  const descriptionInput = textarea(photo.description || "", (value) => (photo.description = value), true);
 
   const actions = document.createElement("div");
   actions.className = "photo-actions";
@@ -286,12 +290,13 @@ function renderWallSettings(scene) {
       scene.wall.max_per_page = Math.max(1, Math.min(9, Math.round(value || 6)));
       clampSelectedPage();
       render();
+      schedulePreview();
     }, 1, 9)),
-    field("旋转强度", numberInput(scene.wall.rotation ?? 6, 0.5, (value) => (scene.wall.rotation = value), 0, 20)),
-    field("错落重叠", numberInput(scene.wall.overlap ?? 0.12, 0.01, (value) => (scene.wall.overlap = value), 0, 0.45)),
+    field("旋转强度", numberInput(scene.wall.rotation ?? 6, 0.5, (value) => (scene.wall.rotation = value), 0, 20, true)),
+    field("错落重叠", numberInput(scene.wall.overlap ?? 0.12, 0.01, (value) => (scene.wall.overlap = value), 0, 0.45, true)),
     field(
       "卡片样式",
-      selectInput(scene.wall.style || "print", [["print", "拍立得"], ["clean", "干净"]], (value) => (scene.wall.style = value))
+      selectInput(scene.wall.style || "print", [["print", "拍立得"], ["clean", "干净"]], (value) => (scene.wall.style = value), true)
     )
   );
   const actions = document.createElement("div");
@@ -313,14 +318,14 @@ function transformControls(photo) {
   const wrapper = document.createElement("section");
   wrapper.className = "transform-grid";
   wrapper.append(
-    field("X", optionalNumberInput(photo.transform?.x, 0.01, (value) => setTransform(photo, "x", value), 0, 1)),
-    field("Y", optionalNumberInput(photo.transform?.y, 0.01, (value) => setTransform(photo, "y", value), 0, 1)),
-    field("宽度", optionalNumberInput(photo.transform?.width, 0.01, (value) => setTransform(photo, "width", value), 0.08, 0.95)),
-    field("旋转", optionalNumberInput(photo.transform?.rotation, 0.5, (value) => setTransform(photo, "rotation", value), -45, 45)),
-    field("层级", optionalNumberInput(photo.transform?.z_index, 1, (value) => setTransform(photo, "z_index", value), -20, 20)),
+    field("X", optionalNumberInput(photo.transform?.x, 0.01, (value) => setTransform(photo, "x", value), 0, 1, true)),
+    field("Y", optionalNumberInput(photo.transform?.y, 0.01, (value) => setTransform(photo, "y", value), 0, 1, true)),
+    field("宽度", optionalNumberInput(photo.transform?.width, 0.01, (value) => setTransform(photo, "width", value), 0.08, 0.95, true)),
+    field("旋转", optionalNumberInput(photo.transform?.rotation, 0.5, (value) => setTransform(photo, "rotation", value), -45, 45, true)),
+    field("层级", optionalNumberInput(photo.transform?.z_index, 1, (value) => setTransform(photo, "z_index", value), -20, 20, true)),
     field(
       "适配",
-      selectInput(photo.transform?.fit || "", [["", "自动"], ["cover", "裁切"], ["contain", "完整"]], (value) => setTransform(photo, "fit", value || null))
+      selectInput(photo.transform?.fit || "", [["", "自动"], ["cover", "裁切"], ["contain", "完整"]], (value) => setTransform(photo, "fit", value || null), true)
     )
   );
   return wrapper;
@@ -347,25 +352,31 @@ function pathField(labelText, input, onChoose) {
   return label;
 }
 
-function textInput(value, onChange) {
+function textInput(value, onChange, livePreview = false) {
   const input = document.createElement("input");
   input.value = value;
-  input.addEventListener("input", () => onChange(input.value));
+  input.addEventListener("input", () => {
+    onChange(input.value);
+    if (livePreview) schedulePreview();
+  });
   return input;
 }
 
-function numberInput(value, step, onChange, min = 0, max = null) {
+function numberInput(value, step, onChange, min = 0, max = null, livePreview = false) {
   const input = document.createElement("input");
   input.type = "number";
   input.min = String(min);
   if (max !== null) input.max = String(max);
   input.step = String(step);
   input.value = value;
-  input.addEventListener("input", () => onChange(Number(input.value)));
+  input.addEventListener("input", () => {
+    onChange(Number(input.value));
+    if (livePreview) schedulePreview();
+  });
   return input;
 }
 
-function optionalNumberInput(value, step, onChange, min = null, max = null) {
+function optionalNumberInput(value, step, onChange, min = null, max = null, livePreview = false) {
   const input = document.createElement("input");
   input.type = "number";
   if (min !== null) input.min = String(min);
@@ -376,11 +387,12 @@ function optionalNumberInput(value, step, onChange, min = null, max = null) {
   input.addEventListener("input", () => {
     const text = input.value.trim();
     onChange(text === "" ? null : Number(text));
+    if (livePreview) schedulePreview();
   });
   return input;
 }
 
-function selectInput(value, options, onChange) {
+function selectInput(value, options, onChange, livePreview = false) {
   const select = document.createElement("select");
   for (const [optionValue, label] of options) {
     const option = document.createElement("option");
@@ -389,14 +401,20 @@ function selectInput(value, options, onChange) {
     select.append(option);
   }
   select.value = value;
-  select.addEventListener("change", () => onChange(select.value));
+  select.addEventListener("change", () => {
+    onChange(select.value);
+    if (livePreview) schedulePreview();
+  });
   return select;
 }
 
-function textarea(value, onChange) {
+function textarea(value, onChange, livePreview = false) {
   const input = document.createElement("textarea");
   input.value = value;
-  input.addEventListener("input", () => onChange(input.value));
+  input.addEventListener("input", () => {
+    onChange(input.value);
+    if (livePreview) schedulePreview();
+  });
   return input;
 }
 
@@ -551,15 +569,45 @@ async function save() {
 }
 
 async function preview() {
+  await refreshPreview({ lockControls: true });
+}
+
+async function refreshPreview({ lockControls = false } = {}) {
+  if (previewInFlight) {
+    previewPending = true;
+    return;
+  }
+  if (busy && !lockControls) return;
+  if (lockControls) {
+    if (busy) return;
+    setBusy(true);
+  }
+  previewInFlight = true;
   readVideoForm();
   clampSelectedPage();
   const pageIndex = currentPageIndex();
-  await withBusy("生成预览", async () => {
+  setStatus("生成预览");
+  try {
     const data = await api("/api/preview", { state, sceneIndex: selectedScene, pageIndex });
     el("previewImage").src = data.preview.url;
     const page = data.preview.page;
     setStatus(`预览：场景 ${selectedScene + 1} · 第 ${page.pageIndex + 1}/${page.pageCount} 页 · ${page.photoCount} 张`);
-  });
+  } catch (error) {
+    setStatus(error.message);
+  } finally {
+    previewInFlight = false;
+    if (lockControls) setBusy(false);
+    if (previewPending) {
+      previewPending = false;
+      schedulePreview(90);
+    }
+  }
+}
+
+function schedulePreview(delay = LIVE_PREVIEW_DELAY) {
+  if (!state || busy) return;
+  window.clearTimeout(previewTimer);
+  previewTimer = window.setTimeout(() => refreshPreview(), delay);
 }
 
 async function renderVideo() {
@@ -706,9 +754,13 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-for (const id of ["videoTitle", "videoWidth", "videoHeight", "videoFps", "backgroundColor", "transitionDuration", "fadeDuration", "outputPath"]) {
-  el(id).addEventListener("input", readVideoForm);
+for (const id of ["videoTitle", "videoWidth", "videoHeight", "videoFps", "backgroundColor", "transitionDuration", "fadeDuration"]) {
+  el(id).addEventListener("input", () => {
+    readVideoForm();
+    schedulePreview();
+  });
 }
+el("outputPath").addEventListener("input", readVideoForm);
 el("addSceneBtn").addEventListener("click", addScene);
 el("chooseOutputBtn").addEventListener("click", chooseOutputPath);
 el("saveBtn").addEventListener("click", save);

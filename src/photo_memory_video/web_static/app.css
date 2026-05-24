@@ -169,7 +169,8 @@ h3 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 240px minmax(520px, 1fr) 360px;
+  grid-template-columns: 240px minmax(520px, 1fr) minmax(380px, 32vw);
+  align-items: start;
   min-height: 0;
 }
 
@@ -443,6 +444,11 @@ h3 {
   display: grid;
   grid-template-rows: auto auto auto 1fr;
   align-content: start;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  max-height: 100vh;
+  z-index: 4;
 }
 
 .status-text {
@@ -525,6 +531,9 @@ progress::-moz-progress-bar {
     grid-column: 1 / -1;
     border-left: 0;
     border-top: 1px solid var(--line);
+    position: static;
+    height: auto;
+    max-height: none;
   }
 
   .video-grid {
