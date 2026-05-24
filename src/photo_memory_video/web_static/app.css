@@ -209,6 +209,25 @@ h3 {
   border-bottom: 1px solid var(--line);
 }
 
+.preview-head {
+  height: auto;
+  min-height: 54px;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.preview-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .icon-btn {
   width: 34px;
   min-height: 34px;
@@ -442,7 +461,7 @@ h3 {
 
 .preview-panel {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   align-content: start;
   position: sticky;
   top: 0;
@@ -464,6 +483,7 @@ h3 {
   background: #101010;
   aspect-ratio: 16 / 9;
   overflow: hidden;
+  cursor: zoom-in;
 }
 
 .preview-frame img {
@@ -474,6 +494,9 @@ h3 {
 }
 
 .video-link {
+  display: inline-block;
+  align-self: start;
+  justify-self: start;
   margin: 0 14px;
   color: var(--accent);
   overflow-wrap: anywhere;
@@ -511,6 +534,223 @@ progress::-webkit-progress-value {
 
 progress::-moz-progress-bar {
   background: var(--accent);
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.graphic-modal[hidden] {
+  display: none;
+}
+
+.graphic-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.72);
+  z-index: 30;
+}
+
+.graphic-dialog {
+  width: min(1180px, 96vw);
+  max-height: 94vh;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #1c1b19;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.graphic-dialog-head,
+.graphic-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.graphic-dialog-head p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graphic-dialog-foot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.graphic-dialog-foot button {
+  min-width: 88px;
+}
+
+.graphic-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #211f1c;
+}
+
+.graphic-toolbar button {
+  min-width: 72px;
+}
+
+.graphic-toolbar label {
+  width: 140px;
+}
+
+.graphic-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px;
+  padding: 14px;
+  border: 1px solid rgba(217, 163, 93, 0.45);
+  border-radius: 8px;
+  background: rgba(217, 163, 93, 0.12);
+  color: var(--text);
+}
+
+.graphic-notice[hidden] {
+  display: none;
+}
+
+.graphic-workspace {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%),
+    #131313;
+  background-size: 28px 28px;
+}
+
+.graphic-canvas {
+  position: relative;
+  width: min(100%, 1040px);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid #4a4741;
+  border-radius: 6px;
+  background: radial-gradient(circle at 48% 45%, #3d3d3b 0, #272624 52%, #171716 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.graphic-card {
+  position: absolute;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 10px 10px 12px;
+  border: 1px solid #ded2bd;
+  border-radius: 6px;
+  background: #f5eddc;
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.34);
+  color: #27221a;
+  cursor: grab;
+  transform-origin: center;
+  user-select: none;
+  touch-action: none;
+}
+
+.graphic-card-clean {
+  padding: 0;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: #111;
+}
+
+.graphic-card.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+}
+
+.graphic-card:active {
+  cursor: grabbing;
+}
+
+.graphic-photo-wrap {
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #0c0c0c;
+}
+
+.graphic-photo-wrap img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.graphic-caption {
+  min-height: 32px;
+  padding-top: 10px;
+  overflow: hidden;
+  color: #2b251c;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graphic-card-clean .graphic-caption {
+  min-height: 0;
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.48);
+  color: #fff7eb;
+  font-size: 13px;
+}
+
+.graphic-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #1c1b19;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.72);
+}
+
+.graphic-rotate {
+  left: 50%;
+  top: -38px;
+  cursor: grab;
+  transform: translateX(-50%);
+}
+
+.graphic-rotate::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  width: 2px;
+  height: 22px;
+  background: var(--accent);
+  transform: translateX(-50%);
+}
+
+.graphic-resize {
+  right: -10px;
+  bottom: -10px;
+  border-radius: 4px;
+  cursor: nwse-resize;
 }
 
 @media (max-width: 1180px) {

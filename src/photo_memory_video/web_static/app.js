@@ -7,6 +7,16 @@ let previewInFlight = false;
 let previewPending = false;
 const selectedPageByScene = {};
 const LIVE_PREVIEW_DELAY = 450;
+const GRAPHIC_MIN_WIDTH = 0.08;
+const GRAPHIC_MAX_WIDTH = 0.95;
+const GRAPHIC_MIN_ROTATION = -45;
+const GRAPHIC_MAX_ROTATION = 45;
+let graphicEditor = {
+  page: null,
+  elements: [],
+  selectedPhotoIndex: null,
+  interaction: null,
+};
 
 const el = (id) => document.getElementById(id);
 
@@ -16,7 +26,7 @@ function setStatus(text) {
 
 function setBusy(value) {
   busy = value;
-  for (const id of ["saveBtn", "previewBtn", "renderBtn", "addSceneBtn", "chooseOutputBtn"]) {
+  for (const id of ["saveBtn", "previewBtn", "renderBtn", "addSceneBtn", "chooseOutputBtn", "graphicEditorBtn"]) {
     el(id).disabled = value;
   }
 }
@@ -649,6 +659,326 @@ async function clearCurrentPageTransforms() {
   setStatus("已清空当前页参数");
 }
 
+async function openGraphicEditor() {
+  if (!state || busy) return;
+  readVideoForm();
+  clampSelectedPage();
+  showGraphicModal(true);
+  el("graphicEditorCanvas").replaceChildren();
+  el("graphicEditorNotice").hidden = true;
+  el("graphicEditorPageLabel").textContent = "加载中";
+  setStatus("加载图形编辑器");
+  try {
+    const pageIndex = currentPageIndex();
+    const data = await api("/api/layout/page-elements", { state, sceneIndex: selectedScene, pageIndex });
+    const layout = data.layout;
+    graphicEditor = {
+      page: layout,
+      elements: (layout.photos || []).map((item) => normalizeGraphicElement(item, layout.canvas)),
+      selectedPhotoIndex: layout.photos?.[0]?.photoIndex ?? null,
+      interaction: null,
+    };
+    renderGraphicEditor();
+    setStatus(layout.editable ? "图形编辑已打开" : "当前页不是照片墙布局");
+  } catch (error) {
+    graphicEditor = { page: null, elements: [], selectedPhotoIndex: null, interaction: null };
+    el("graphicEditorPageLabel").textContent = error.message;
+    setStatus(error.message);
+  }
+}
+
+function showGraphicModal(visible) {
+  el("graphicEditorModal").hidden = !visible;
+  document.body.classList.toggle("modal-open", visible);
+}
+
+function closeGraphicEditor() {
+  endGraphicInteraction();
+  graphicEditor = { page: null, elements: [], selectedPhotoIndex: null, interaction: null };
+  showGraphicModal(false);
+}
+
+function renderGraphicEditor() {
+  const page = graphicEditor.page;
+  const canvas = el("graphicEditorCanvas");
+  const notice = el("graphicEditorNotice");
+  const toolbarControls = ["graphicBackBtn", "graphicFrontBtn", "graphicFitSelect", "graphicApplyBtn"];
+  canvas.replaceChildren();
+  if (!page) {
+    for (const id of toolbarControls) el(id).disabled = true;
+    return;
+  }
+
+  el("graphicEditorPageLabel").textContent = `场景 ${page.sceneIndex + 1} · 第 ${page.pageIndex + 1} 页`;
+  notice.hidden = page.editable;
+  canvas.hidden = !page.editable;
+  for (const id of toolbarControls) el(id).disabled = !page.editable;
+  if (!page.editable) {
+    syncGraphicToolbar();
+    return;
+  }
+
+  canvas.style.aspectRatio = `${page.canvas.width} / ${page.canvas.height}`;
+  const ordered = [...graphicEditor.elements].sort(compareGraphicLayer);
+  for (const [renderOrder, item] of ordered.entries()) {
+    canvas.append(renderGraphicCard(item, renderOrder));
+  }
+  syncGraphicToolbar();
+}
+
+function renderGraphicCard(item, renderOrder = 0) {
+  const card = document.createElement("div");
+  card.className = `graphic-card graphic-card-${item.frame}${item.photoIndex === graphicEditor.selectedPhotoIndex ? " selected" : ""}`;
+  card.dataset.photoIndex = String(item.photoIndex);
+  card.style.left = `${item.x * 100}%`;
+  card.style.top = `${item.y * 100}%`;
+  card.style.width = `${item.width * 100}%`;
+  card.style.height = `${item.height * 100}%`;
+  card.style.zIndex = String(100 + renderOrder);
+  card.style.transform = `translate(-50%, -50%) rotate(${-item.rotation}deg)`;
+  card.addEventListener("pointerdown", (event) => startGraphicMove(event, item.photoIndex));
+  card.addEventListener("click", () => selectGraphicElement(item.photoIndex));
+
+  const photoWrap = document.createElement("div");
+  photoWrap.className = "graphic-photo-wrap";
+  const image = document.createElement("img");
+  image.src = item.mediaUrl || mediaUrl(item.path);
+  image.alt = item.caption || item.path || "photo";
+  image.draggable = false;
+  image.style.objectFit = item.fit === "cover" ? "cover" : "contain";
+  photoWrap.append(image);
+
+  const caption = document.createElement("div");
+  caption.className = "graphic-caption";
+  caption.textContent = [item.time, item.caption].filter(Boolean).join(" · ");
+
+  card.append(photoWrap, caption);
+
+  if (item.photoIndex === graphicEditor.selectedPhotoIndex) {
+    const rotate = document.createElement("div");
+    rotate.className = "graphic-handle graphic-rotate";
+    rotate.addEventListener("pointerdown", (event) => startGraphicRotate(event, item.photoIndex));
+
+    const resize = document.createElement("div");
+    resize.className = "graphic-handle graphic-resize";
+    resize.addEventListener("pointerdown", (event) => startGraphicResize(event, item.photoIndex));
+    card.append(rotate, resize);
+  }
+  return card;
+}
+
+function normalizeGraphicElement(item, canvas = { width: 16, height: 9 }) {
+  const rawWidth = Number(item.width);
+  const rawHeight = Number(item.height);
+  const rawX = Number(item.x);
+  const rawY = Number(item.y);
+  const rawRotation = Number(item.rotation);
+  const width = clampNumber(Number.isFinite(rawWidth) ? rawWidth : 0.3, GRAPHIC_MIN_WIDTH, GRAPHIC_MAX_WIDTH);
+  const height = clampNumber(Number.isFinite(rawHeight) ? rawHeight : 0.25, GRAPHIC_MIN_WIDTH, GRAPHIC_MAX_WIDTH);
+  const aspect = (width * canvas.width) / Math.max(1, height * canvas.height);
+  return {
+    photoIndex: Number(item.photoIndex),
+    path: item.path || "",
+    mediaUrl: item.mediaUrl || "",
+    caption: item.caption || "",
+    time: item.time || "",
+    fit: item.fit || "contain",
+    frame: item.frame || "print",
+    x: clampNumber(Number.isFinite(rawX) ? rawX : 0.5, 0, 1),
+    y: clampNumber(Number.isFinite(rawY) ? rawY : 0.5, 0, 1),
+    width,
+    height,
+    aspect: Number.isFinite(aspect) ? aspect : 1.35,
+    rotation: clampNumber(Number.isFinite(rawRotation) ? rawRotation : 0, GRAPHIC_MIN_ROTATION, GRAPHIC_MAX_ROTATION),
+    z_index: Number.isFinite(Number(item.z_index)) ? Number(item.z_index) : 0,
+  };
+}
+
+function selectGraphicElement(photoIndex) {
+  graphicEditor.selectedPhotoIndex = photoIndex;
+  renderGraphicEditor();
+}
+
+function selectedGraphicElement() {
+  return graphicEditor.elements.find((item) => item.photoIndex === graphicEditor.selectedPhotoIndex) || null;
+}
+
+function syncGraphicToolbar() {
+  const selected = selectedGraphicElement();
+  const disabled = !graphicEditor.page?.editable || !selected;
+  el("graphicBackBtn").disabled = disabled;
+  el("graphicFrontBtn").disabled = disabled;
+  el("graphicFitSelect").disabled = disabled;
+  if (selected) {
+    el("graphicFitSelect").value = selected.fit || "contain";
+  }
+}
+
+function startGraphicMove(event, photoIndex) {
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.target.closest(".graphic-handle")) return;
+  const item = graphicEditor.elements.find((candidate) => candidate.photoIndex === photoIndex);
+  if (!item) return;
+  event.preventDefault();
+  graphicEditor.selectedPhotoIndex = photoIndex;
+  graphicEditor.interaction = {
+    type: "move",
+    photoIndex,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: item.x,
+    originY: item.y,
+    metrics: graphicCanvasMetrics(),
+  };
+  window.addEventListener("pointermove", handleGraphicPointerMove);
+  window.addEventListener("pointerup", endGraphicInteraction, { once: true });
+  renderGraphicEditor();
+}
+
+function startGraphicResize(event, photoIndex) {
+  const item = graphicEditor.elements.find((candidate) => candidate.photoIndex === photoIndex);
+  if (!item) return;
+  event.preventDefault();
+  event.stopPropagation();
+  graphicEditor.selectedPhotoIndex = photoIndex;
+  const metrics = graphicCanvasMetrics();
+  graphicEditor.interaction = {
+    type: "resize",
+    photoIndex,
+    startX: event.clientX,
+    startY: event.clientY,
+    originPixelWidth: item.width * metrics.width,
+    aspect: item.aspect || 1.35,
+    metrics,
+  };
+  window.addEventListener("pointermove", handleGraphicPointerMove);
+  window.addEventListener("pointerup", endGraphicInteraction, { once: true });
+}
+
+function startGraphicRotate(event, photoIndex) {
+  const item = graphicEditor.elements.find((candidate) => candidate.photoIndex === photoIndex);
+  if (!item) return;
+  event.preventDefault();
+  event.stopPropagation();
+  graphicEditor.selectedPhotoIndex = photoIndex;
+  graphicEditor.interaction = {
+    type: "rotate",
+    photoIndex,
+    metrics: graphicCanvasMetrics(),
+  };
+  window.addEventListener("pointermove", handleGraphicPointerMove);
+  window.addEventListener("pointerup", endGraphicInteraction, { once: true });
+}
+
+function handleGraphicPointerMove(event) {
+  const interaction = graphicEditor.interaction;
+  if (!interaction) return;
+  const item = graphicEditor.elements.find((candidate) => candidate.photoIndex === interaction.photoIndex);
+  if (!item) return;
+  event.preventDefault();
+  const { rect, width, height } = interaction.metrics;
+
+  if (interaction.type === "move") {
+    item.x = clampNumber(interaction.originX + (event.clientX - interaction.startX) / width, 0, 1);
+    item.y = clampNumber(interaction.originY + (event.clientY - interaction.startY) / height, 0, 1);
+  } else if (interaction.type === "resize") {
+    const horizontalDelta = event.clientX - interaction.startX;
+    const verticalAsWidthDelta = (event.clientY - interaction.startY) * interaction.aspect;
+    const resizeDelta =
+      Math.abs(horizontalDelta) > Math.abs(verticalAsWidthDelta) ? horizontalDelta : verticalAsWidthDelta;
+    const pixelWidth = clampNumber(
+      interaction.originPixelWidth + resizeDelta * 2,
+      GRAPHIC_MIN_WIDTH * width,
+      GRAPHIC_MAX_WIDTH * width
+    );
+    item.width = pixelWidth / width;
+    item.height = pixelWidth / interaction.aspect / height;
+  } else if (interaction.type === "rotate") {
+    const centerX = rect.left + item.x * width;
+    const centerY = rect.top + item.y * height;
+    const cssAngle = (Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180) / Math.PI + 90;
+    item.rotation = clampNumber(-cssAngle, GRAPHIC_MIN_ROTATION, GRAPHIC_MAX_ROTATION);
+  }
+
+  renderGraphicEditor();
+}
+
+function endGraphicInteraction() {
+  window.removeEventListener("pointermove", handleGraphicPointerMove);
+  graphicEditor.interaction = null;
+}
+
+function graphicCanvasMetrics() {
+  const rect = el("graphicEditorCanvas").getBoundingClientRect();
+  return {
+    rect,
+    width: Math.max(1, rect.width),
+    height: Math.max(1, rect.height),
+  };
+}
+
+function setGraphicFit(value) {
+  const selected = selectedGraphicElement();
+  if (!selected) return;
+  selected.fit = value || "contain";
+  renderGraphicEditor();
+}
+
+function moveGraphicLayer(direction) {
+  const selected = selectedGraphicElement();
+  if (!selected) return;
+  const levels = graphicEditor.elements.map((item) => item.z_index);
+  selected.z_index = direction > 0 ? Math.max(...levels) + 1 : Math.min(...levels) - 1;
+  normalizeGraphicLayers();
+  renderGraphicEditor();
+}
+
+function normalizeGraphicLayers() {
+  const ordered = [...graphicEditor.elements].sort(compareGraphicLayer);
+  ordered.forEach((item, index) => {
+    item.z_index = index;
+  });
+}
+
+function compareGraphicLayer(a, b) {
+  return a.z_index - b.z_index || a.photoIndex - b.photoIndex;
+}
+
+async function applyGraphicEditor() {
+  if (!graphicEditor.page?.editable) return;
+  const scene = state.scenes[graphicEditor.page.sceneIndex];
+  if (!scene) return;
+  for (const item of graphicEditor.elements) {
+    const photo = scene.photos[item.photoIndex];
+    if (!photo) continue;
+    photo.transform = {
+      ...(photo.transform || {}),
+      x: roundNumber(clampNumber(item.x, 0, 1), 4),
+      y: roundNumber(clampNumber(item.y, 0, 1), 4),
+      width: roundNumber(clampNumber(item.width, GRAPHIC_MIN_WIDTH, GRAPHIC_MAX_WIDTH), 4),
+      rotation: roundNumber(clampNumber(item.rotation, GRAPHIC_MIN_ROTATION, GRAPHIC_MAX_ROTATION), 2),
+      fit: item.fit || "contain",
+      z_index: Math.round(item.z_index || 0),
+    };
+    delete photo.transform.height;
+  }
+  closeGraphicEditor();
+  render();
+  await preview();
+  setStatus("已应用图形编辑，保存后写入 YAML");
+}
+
+async function switchCurrentSceneToPhotoWall() {
+  const scene = state.scenes[selectedScene];
+  if (!scene) return;
+  scene.layout = "photo_wall";
+  ensureSceneDefaults(scene);
+  clampSelectedPage();
+  render();
+  await preview();
+  await openGraphicEditor();
+}
+
 async function pollRenderJob(jobId) {
   while (true) {
     const data = await api(`/api/render/status?id=${encodeURIComponent(jobId)}`);
@@ -724,6 +1054,15 @@ function setTransform(photo, key, value) {
   }
 }
 
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function roundNumber(value, digits) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -766,5 +1105,17 @@ el("chooseOutputBtn").addEventListener("click", chooseOutputPath);
 el("saveBtn").addEventListener("click", save);
 el("previewBtn").addEventListener("click", preview);
 el("renderBtn").addEventListener("click", renderVideo);
+el("graphicEditorBtn").addEventListener("click", openGraphicEditor);
+el("previewImage").addEventListener("click", openGraphicEditor);
+el("graphicCloseBtn").addEventListener("click", closeGraphicEditor);
+el("graphicCancelBtn").addEventListener("click", closeGraphicEditor);
+el("graphicApplyBtn").addEventListener("click", applyGraphicEditor);
+el("graphicBackBtn").addEventListener("click", () => moveGraphicLayer(-1));
+el("graphicFrontBtn").addEventListener("click", () => moveGraphicLayer(1));
+el("graphicFitSelect").addEventListener("change", (event) => setGraphicFit(event.target.value));
+el("switchPhotoWallBtn").addEventListener("click", switchCurrentSceneToPhotoWall);
+el("graphicEditorModal").addEventListener("click", (event) => {
+  if (event.target === el("graphicEditorModal")) closeGraphicEditor();
+});
 
 loadProject().catch((error) => setStatus(error.message));

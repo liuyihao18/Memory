@@ -69,9 +69,12 @@
         </section>
 
         <aside class="preview-panel">
-          <div class="panel-head">
+          <div class="panel-head preview-head">
             <h2>预览</h2>
-            <span id="statusText" class="status-text">就绪</span>
+            <div class="preview-actions">
+              <button id="graphicEditorBtn" type="button">图形编辑</button>
+              <span id="statusText" class="status-text">就绪</span>
+            </div>
           </div>
           <div class="preview-frame">
             <img id="previewImage" alt="视频预览" />
@@ -84,6 +87,44 @@
         </aside>
       </section>
     </main>
+
+    <div id="graphicEditorModal" class="graphic-modal" hidden>
+      <section class="graphic-dialog" role="dialog" aria-modal="true" aria-labelledby="graphicEditorTitle">
+        <header class="graphic-dialog-head">
+          <div>
+            <h2 id="graphicEditorTitle">照片墙图形编辑</h2>
+            <p id="graphicEditorPageLabel"></p>
+          </div>
+          <button id="graphicCloseBtn" type="button" class="icon-btn" aria-label="关闭">×</button>
+        </header>
+
+        <div class="graphic-toolbar">
+          <button id="graphicBackBtn" type="button">置底</button>
+          <button id="graphicFrontBtn" type="button">置顶</button>
+          <label>
+            适配
+            <select id="graphicFitSelect">
+              <option value="contain">完整</option>
+              <option value="cover">裁切</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="graphicEditorNotice" class="graphic-notice" hidden>
+          <p>当前页不是照片墙布局。</p>
+          <button id="switchPhotoWallBtn" type="button">切换到照片墙</button>
+        </div>
+
+        <div class="graphic-workspace">
+          <div id="graphicEditorCanvas" class="graphic-canvas"></div>
+        </div>
+
+        <footer class="graphic-dialog-foot">
+          <button id="graphicCancelBtn" type="button">取消</button>
+          <button id="graphicApplyBtn" type="button" class="primary">应用</button>
+        </footer>
+      </section>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>

@@ -162,3 +162,105 @@ scenes:
     assert [item["photoIndex"] for item in result["transforms"]] == [0, 1, 2]
     assert all(0 < item["transform"]["width"] < 1 for item in result["transforms"])
     assert all(item["transform"]["fit"] == "contain" for item in result["transforms"])
+
+
+def test_web_workspace_page_elements_return_auto_photo_wall_geometry(tmp_path: Path) -> None:
+    for index in range(2):
+        photo = tmp_path / "photos" / f"{index + 1:03}.jpg"
+        photo.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (140 + index * 20, 100), (90, 110, 120)).save(photo)
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [640, 360]
+scenes:
+  - layout: photo_wall
+    duration: 3
+    photos:
+      - path: "photos/001.jpg"
+        caption: "first"
+      - path: "photos/002.jpg"
+        time: "2020"
+""",
+        encoding="utf-8",
+    )
+    workspace = WebWorkspace(config_path, tmp_path / "output.mp4")
+    state = project_to_editor_state(load_config(config_path))
+
+    result = workspace.photo_wall_page_elements(state, scene_index=0, page_index=0)
+
+    assert result["editable"] is True
+    assert result["canvas"] == {"width": 640, "height": 360}
+    assert [item["photoIndex"] for item in result["photos"]] == [0, 1]
+    assert result["photos"][0]["caption"] == "first"
+    assert result["photos"][1]["time"] == "2020"
+    assert result["photos"][0]["mediaUrl"].startswith("/media?path=")
+    assert all(0 < item["x"] < 1 and 0 < item["y"] < 1 for item in result["photos"])
+    assert all(0 < item["width"] < 1 and 0 < item["height"] < 1 for item in result["photos"])
+    assert all(item["fit"] == "contain" for item in result["photos"])
+
+
+def test_web_workspace_page_elements_apply_existing_transform(tmp_path: Path) -> None:
+    photo = tmp_path / "photos" / "001.jpg"
+    photo.parent.mkdir(parents=True)
+    Image.new("RGB", (120, 90), (90, 100, 110)).save(photo)
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [640, 360]
+scenes:
+  - layout: photo_wall
+    duration: 3
+    photos:
+      - path: "photos/001.jpg"
+        transform:
+          x: 0.22
+          y: 0.33
+          width: 0.25
+          rotation: 11
+          fit: cover
+          z_index: 7
+""",
+        encoding="utf-8",
+    )
+    workspace = WebWorkspace(config_path, tmp_path / "output.mp4")
+    state = project_to_editor_state(load_config(config_path))
+
+    result = workspace.photo_wall_page_elements(state, scene_index=0, page_index=0)
+    item = result["photos"][0]
+
+    assert abs(item["x"] - 0.22) < 0.01
+    assert abs(item["y"] - 0.33) < 0.01
+    assert item["width"] == 0.25
+    assert item["rotation"] == 11
+    assert item["fit"] == "cover"
+    assert item["z_index"] == 7
+
+
+def test_web_workspace_page_elements_reject_non_photo_wall(tmp_path: Path) -> None:
+    photo = tmp_path / "photos" / "001.jpg"
+    photo.parent.mkdir(parents=True)
+    Image.new("RGB", (120, 90), (90, 100, 110)).save(photo)
+    config_path = tmp_path / "grid.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [640, 360]
+scenes:
+  - layout: grid
+    duration: 3
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    workspace = WebWorkspace(config_path, tmp_path / "output.mp4")
+    state = project_to_editor_state(load_config(config_path))
+
+    result = workspace.photo_wall_page_elements(state, scene_index=0, page_index=0)
+
+    assert result["editable"] is False
+    assert result["photos"] == []
+    assert "reason" in result
