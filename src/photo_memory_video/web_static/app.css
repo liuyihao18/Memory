@@ -30,6 +30,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -60,6 +61,7 @@ button.primary {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -70,6 +72,11 @@ textarea {
 }
 
 input {
+  height: 38px;
+  padding: 0 10px;
+}
+
+select {
   height: 38px;
   padding: 0 10px;
 }
@@ -286,12 +293,34 @@ h3 {
 
 .scene-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 120px;
+  grid-template-columns: minmax(180px, 1fr) 120px 140px;
   gap: 12px;
 }
 
 .scene-form label:last-child {
   grid-column: 1 / -1;
+}
+
+.wall-settings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.wall-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.wall-actions button {
+  min-width: 150px;
 }
 
 .photo-toolbar {
@@ -338,7 +367,7 @@ h3 {
 
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
 }
 
@@ -371,14 +400,38 @@ h3 {
 
 .photo-actions {
   display: grid;
-  grid-template-columns: repeat(5, 32px);
+  grid-template-columns: repeat(6, 32px);
   gap: 6px;
+}
+
+.transform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.transform-grid label {
+  min-width: 0;
+}
+
+.transform-grid label:last-child {
+  grid-column: 1 / -1;
 }
 
 .photo-actions button {
   width: 32px;
   min-height: 32px;
   padding: 0;
+}
+
+.drag-handle {
+  cursor: grab;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .danger {
@@ -492,6 +545,8 @@ progress::-moz-progress-bar {
   .top-actions,
   .video-grid,
   .scene-form,
+  .wall-settings,
+  .transform-grid,
   .photo-toolbar {
     grid-template-columns: 1fr;
   }

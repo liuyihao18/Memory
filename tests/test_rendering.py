@@ -86,3 +86,69 @@ scenes:
 
     assert output.exists()
     assert Image.open(output).size == (320, 180)
+
+
+def test_photo_wall_preview_renders_rotated_cards(tmp_path: Path) -> None:
+    for index in range(5):
+        _image(tmp_path / "photos" / f"{index + 1:03}.jpg", (140 + index * 10, 100), (60 + index * 20, 100, 120))
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+  fps: 2
+scenes:
+  - title: "照片墙"
+    layout: photo_wall
+    wall:
+      max_per_page: 5
+      rotation: 8
+    duration: 2
+    photos:
+      - path: "photos/001.jpg"
+        caption: "第一张"
+      - path: "photos/002.jpg"
+      - path: "photos/003.jpg"
+      - path: "photos/004.jpg"
+      - path: "photos/005.jpg"
+""",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    output = tmp_path / "wall_preview.png"
+
+    render_preview_page(config, output, scene_index=0, page_index=0)
+
+    assert output.exists()
+    assert Image.open(output).size == (320, 180)
+
+
+def test_contain_fit_keeps_background_when_zoom_crops_one_axis(tmp_path: Path) -> None:
+    _image(tmp_path / "photos" / "001.jpg", (100, 200), (200, 80, 60))
+    config_path = tmp_path / "demo.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+scenes:
+  - duration: 1
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    renderer = ProjectRenderer(load_config(config_path))
+    try:
+        page_renderer = renderer.rendered_pages[0].renderer
+        tile = page_renderer._contain_fit(
+            Image.new("RGB", (100, 200), (200, 80, 60)),
+            Rect(0, 0, 300, 200),
+            progress=1.0,
+            drift=1.0,
+            background_color=(236, 230, 218),
+        )
+    finally:
+        renderer.close()
+
+    assert tile.getpixel((0, 100)) == (236, 230, 218)
+    assert tile.getpixel((299, 100)) == (236, 230, 218)

@@ -14,10 +14,13 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import yaml
+from PIL import Image, ImageOps
 
 from .config_loader import ConfigError, IMAGE_EXTENSIONS, ProjectConfig, load_config, load_config_data
 from .file_dialogs import open_directory_dialog, open_file_dialog
+from .layout import photo_wall_layout
 from .render import render_preview_frame, render_preview_page, render_video
+from .timeline import build_scene_pages
 from .web_state import (
     find_page_state,
     optional_text,
@@ -176,6 +179,60 @@ class WebWorkspace:
             raise WebError(HTTPStatus.NOT_FOUND, "Render job not found.")
         return job.snapshot()
 
+    def auto_photo_wall_transforms(
+        self,
+        state: Mapping[str, Any],
+        scene_index: int,
+        page_index: int,
+    ) -> dict[str, Any]:
+        data = state_to_config_data(state)
+        config = load_config_data(data, self.config_path)
+        pages = build_scene_pages(config)
+        target_page = next(
+            (
+                page
+                for page in pages
+                if page.scene_index == scene_index and page.page_index == page_index
+            ),
+            None,
+        )
+        if target_page is None:
+            raise WebError(HTTPStatus.BAD_REQUEST, f"Preview page does not exist: scene {scene_index + 1}, page {page_index + 1}")
+        if target_page.layout != "photo_wall":
+            raise WebError(HTTPStatus.BAD_REQUEST, "Auto transforms are only available for photo_wall layout.")
+
+        canvas_w, canvas_h = config.video.resolution
+        photo_sizes = []
+        for photo in target_page.photos:
+            with Image.open(photo.path) as image:
+                photo_sizes.append(ImageOps.exif_transpose(image).size)
+        slots = photo_wall_layout(
+            len(target_page.photos),
+            config.video.resolution,
+            photo_sizes,
+            transforms=[None] * len(target_page.photos),
+            rotation_limit=target_page.wall.rotation,
+            overlap=target_page.wall.overlap,
+            style=target_page.wall.style,
+        )
+        photo_offset = sum(len(page.photos) for page in pages if page.scene_index == scene_index and page.page_index < page_index)
+        transforms = []
+        for index, slot in enumerate(slots):
+            transforms.append(
+                {
+                    "photoIndex": photo_offset + index,
+                    "transform": {
+                        "x": round((slot.rect.x + slot.rect.width / 2) / canvas_w, 4),
+                        "y": round((slot.rect.y + slot.rect.height / 2) / canvas_h, 4),
+                        "width": round(slot.rect.width / canvas_w, 4),
+                        "rotation": round(slot.rotation, 2),
+                        "fit": slot.fit,
+                        "z_index": slot.z_index,
+                    },
+                }
+            )
+        return {"sceneIndex": scene_index, "pageIndex": page_index, "transforms": transforms}
+
     def _run_render_job(self, job: RenderJob, config: ProjectConfig, output: Path) -> None:
         try:
             job.update(progress=0.01, message="开始渲染", status="running")
@@ -294,6 +351,20 @@ def make_handler(workspace: WebWorkspace) -> type[BaseHTTPRequestHandler]:
                 elif method == "GET" and parsed.path == "/api/render/status":
                     query = parse_qs(parsed.query)
                     self.send_json({"ok": True, "job": workspace.render_job_status(query.get("id", [""])[0])})
+                elif method == "POST" and parsed.path == "/api/layout/auto-transform":
+                    body = self.read_json()
+                    requested_scene = parse_int(body.get("sceneIndex"), "sceneIndex", allow_zero=True)
+                    requested_page = parse_int(body.get("pageIndex"), "pageIndex", allow_zero=True)
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "layout": workspace.auto_photo_wall_transforms(
+                                body.get("state") or body,
+                                requested_scene,
+                                requested_page,
+                            ),
+                        }
+                    )
                 elif method == "POST" and parsed.path == "/api/list-images":
                     body = self.read_json()
                     self.send_json({"ok": True, "photos": workspace.list_images(optional_text(body.get("directory")) or "")})

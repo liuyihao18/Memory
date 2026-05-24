@@ -25,13 +25,21 @@ def project_to_editor_state(config: ProjectConfig, output_path: Path | None = No
                 "title": scene.title or "",
                 "description": scene.description or "",
                 "duration": scene.duration,
+                "layout": scene.layout,
+                "wall": {
+                    "max_per_page": scene.wall.max_per_page,
+                    "rotation": scene.wall.rotation,
+                    "overlap": scene.wall.overlap,
+                    "style": scene.wall.style,
+                },
                 "photos": [
-                    {
+                    compact_mapping({
                         **photo_state(photo.path, config.base_dir),
                         "caption": photo.caption or "",
                         "time": photo.time or "",
                         "description": photo.description or "",
-                    }
+                        "transform": transform_state(photo.transform),
+                    })
                     for photo in scene.photos
                 ],
             }
@@ -69,11 +77,14 @@ def state_to_config_data(state: Mapping[str, Any]) -> dict[str, Any]:
         raw_photos = raw_scene.get("photos")
         if not isinstance(raw_photos, list) or not raw_photos:
             raise ConfigError(f"scenes[{scene_index}].photos must be a non-empty list.")
+        layout = optional_text(raw_scene.get("layout")) or "auto"
         scene = compact_mapping(
             {
                 "title": optional_text(raw_scene.get("title")),
                 "description": optional_text(raw_scene.get("description")),
                 "duration": parse_float(raw_scene.get("duration"), f"scenes[{scene_index}].duration"),
+                "layout": None if layout == "auto" else layout,
+                "wall": wall_to_config(raw_scene.get("wall"), scene_index) if layout == "photo_wall" else None,
                 "photos": [photo_to_config(photo, scene_index, photo_index) for photo_index, photo in enumerate(raw_photos)],
             }
         )
@@ -93,8 +104,61 @@ def photo_to_config(raw_photo: Any, scene_index: int, photo_index: int) -> dict[
             "time": optional_text(raw_photo.get("time")),
             "caption": optional_text(raw_photo.get("caption")),
             "description": optional_text(raw_photo.get("description")),
+            "transform": transform_to_config(raw_photo.get("transform"), scene_index, photo_index),
         }
     )
+
+
+def wall_to_config(raw_wall: Any, scene_index: int) -> dict[str, Any] | None:
+    if raw_wall is None:
+        return None
+    if not isinstance(raw_wall, Mapping):
+        raise ConfigError(f"scenes[{scene_index}].wall must be a mapping.")
+    wall = compact_mapping(
+        {
+            "max_per_page": parse_int(raw_wall.get("max_per_page", 6), f"scenes[{scene_index}].wall.max_per_page"),
+            "rotation": parse_float(raw_wall.get("rotation", 6), f"scenes[{scene_index}].wall.rotation"),
+            "overlap": parse_float(raw_wall.get("overlap", 0.12), f"scenes[{scene_index}].wall.overlap"),
+            "style": optional_text(raw_wall.get("style")) or "print",
+        }
+    )
+    return wall or None
+
+
+def transform_state(transform: Any) -> dict[str, Any] | None:
+    if transform is None:
+        return None
+    data = compact_mapping(
+        {
+            "x": transform.x,
+            "y": transform.y,
+            "width": transform.width,
+            "height": transform.height,
+            "rotation": transform.rotation,
+            "fit": transform.fit,
+            "z_index": transform.z_index,
+        }
+    )
+    return data or None
+
+
+def transform_to_config(raw_transform: Any, scene_index: int, photo_index: int) -> dict[str, Any] | None:
+    if raw_transform is None:
+        return None
+    if not isinstance(raw_transform, Mapping):
+        raise ConfigError(f"scenes[{scene_index}].photos[{photo_index}].transform must be a mapping.")
+    transform = compact_mapping(
+        {
+            "x": optional_float(raw_transform.get("x"), f"scenes[{scene_index}].photos[{photo_index}].transform.x"),
+            "y": optional_float(raw_transform.get("y"), f"scenes[{scene_index}].photos[{photo_index}].transform.y"),
+            "width": optional_float(raw_transform.get("width"), f"scenes[{scene_index}].photos[{photo_index}].transform.width"),
+            "height": optional_float(raw_transform.get("height"), f"scenes[{scene_index}].photos[{photo_index}].transform.height"),
+            "rotation": optional_float(raw_transform.get("rotation"), f"scenes[{scene_index}].photos[{photo_index}].transform.rotation"),
+            "fit": optional_text(raw_transform.get("fit")),
+            "z_index": optional_int(raw_transform.get("z_index"), f"scenes[{scene_index}].photos[{photo_index}].transform.z_index"),
+        }
+    )
+    return transform or None
 
 
 def scene_pages_state(config: ProjectConfig) -> list[dict[str, Any]]:
@@ -191,6 +255,24 @@ def parse_float(value: Any, label: str) -> float:
     if number < 0:
         raise ConfigError(f"{label} must be >= 0.")
     return number
+
+
+def optional_float(value: Any, label: str) -> float | None:
+    if value is None or optional_text(value) is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{label} must be a number.") from exc
+
+
+def optional_int(value: Any, label: str) -> int | None:
+    if value is None or optional_text(value) is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{label} must be an integer.") from exc
 
 
 def rgb_to_hex(color: tuple[int, int, int]) -> str:

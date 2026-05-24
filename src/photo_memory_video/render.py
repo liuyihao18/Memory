@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from .config_loader import PhotoConfig, ProjectConfig, VideoConfig
-from .layout import LayoutSlot, Rect, layout_for_count
+from .layout import LayoutSlot, Rect, layout_for_count, photo_wall_layout
 from .text_renderer import TextRenderer
 from .timeline import ScenePage, build_scene_pages
 from .transitions import blend_frames, clamp01, fade_to_color, smoothstep
@@ -37,13 +37,21 @@ class PageRenderer:
         self.photos = page.photos
         self.images = [ImageOps.exif_transpose(Image.open(photo.path)).convert("RGB") for photo in self.photos]
         self.photo_sizes = [image.size for image in self.images]
-        self.slots = layout_for_count(len(self.photos), self.canvas_size, self.photo_sizes)
+        self.slots = self._build_slots()
         self.background = self._make_background()
 
     def make_frame(self, t: float) -> np.ndarray:
         progress = clamp01(t / max(self.page.duration, 0.001))
         canvas = self.background.copy()
-        for index, (photo, image, slot) in enumerate(zip(self.photos, self.images, self.slots)):
+        draw_items = sorted(
+            enumerate(zip(self.photos, self.images, self.slots)),
+            key=lambda item: item[1][2].z_index,
+        )
+        for index, (photo, image, slot) in draw_items:
+            if slot.frame in {"print", "clean"}:
+                canvas = self._paste_photo_card(canvas, image, slot, photo, progress, index)
+                continue
+
             tile = self._render_photo(image, slot, progress, index)
             canvas = self._paste_tile(canvas, tile, slot, rounded=len(self.photos) > 1 or slot.fit == "contain")
 
@@ -57,6 +65,19 @@ class PageRenderer:
     def close(self) -> None:
         for image in self.images:
             image.close()
+
+    def _build_slots(self) -> list[LayoutSlot]:
+        if self.page.layout == "photo_wall":
+            return photo_wall_layout(
+                len(self.photos),
+                self.canvas_size,
+                self.photo_sizes,
+                transforms=[photo.transform for photo in self.photos],
+                rotation_limit=self.page.wall.rotation,
+                overlap=self.page.wall.overlap,
+                style=self.page.wall.style,
+            )
+        return layout_for_count(len(self.photos), self.canvas_size, self.photo_sizes)
 
     def _page_title(self) -> str | None:
         if not self.page.title:
@@ -111,21 +132,28 @@ class PageRenderer:
         crop_y = max(0, min(extra_y, crop_y))
         return resized.crop((crop_x, crop_y, crop_x + rect.width, crop_y + rect.height))
 
-    def _contain_fit(self, image: Image.Image, rect: Rect, progress: float, drift: float) -> Image.Image:
+    def _contain_fit(
+        self,
+        image: Image.Image,
+        rect: Rect,
+        progress: float,
+        drift: float,
+        background_color: tuple[int, int, int] | None = None,
+    ) -> Image.Image:
         zoom = 1.0 + smoothstep(progress) * 0.035
         scale = min(rect.width / image.width, rect.height / image.height) * zoom
         resized_w = int(math.ceil(image.width * scale))
         resized_h = int(math.ceil(image.height * scale))
         resized = image.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
-        tile = Image.new("RGB", (rect.width, rect.height), self.video.background_color)
-        x = (rect.width - resized_w) // 2
-        y = (rect.height - resized_h) // 2
-        if x < 0 or y < 0:
-            crop_x = max(0, -x)
-            crop_y = max(0, -y)
-            resized = resized.crop((crop_x, crop_y, crop_x + rect.width, crop_y + rect.height))
-            x = max(0, x)
-            y = max(0, y)
+        tile = Image.new("RGB", (rect.width, rect.height), background_color or self.video.background_color)
+        if resized_w > rect.width:
+            crop_x = max(0, (resized_w - rect.width) // 2)
+            resized = resized.crop((crop_x, 0, crop_x + rect.width, resized_h))
+        if resized_h > rect.height:
+            crop_y = max(0, (resized.height - rect.height) // 2)
+            resized = resized.crop((0, crop_y, resized.width, crop_y + rect.height))
+        x = max(0, (rect.width - resized.width) // 2)
+        y = max(0, (rect.height - resized.height) // 2)
         tile.paste(resized, (x, y))
         return tile
 
@@ -153,6 +181,96 @@ class PageRenderer:
 
         base.paste(tile_rgba, (rect.x, rect.y), mask)
         return base.convert("RGB")
+
+    def _paste_photo_card(
+        self,
+        canvas: Image.Image,
+        image: Image.Image,
+        slot: LayoutSlot,
+        photo: PhotoConfig,
+        progress: float,
+        index: int,
+    ) -> Image.Image:
+        card = self._render_photo_card(image, slot, photo, progress, index)
+        rotated = card.rotate(slot.rotation, resample=Image.Resampling.BICUBIC, expand=True)
+        rect = slot.rect
+        x = rect.x + rect.width // 2 - rotated.width // 2
+        y = rect.y + rect.height // 2 - rotated.height // 2
+
+        base = canvas.convert("RGBA")
+        alpha = rotated.getchannel("A")
+        shadow = Image.new("RGBA", rotated.size, (0, 0, 0, 120))
+        shadow.putalpha(alpha.filter(ImageFilter.GaussianBlur(radius=max(10, int(min(rect.width, rect.height) * 0.035)))))
+        base.paste(shadow, (x + 10, y + 14), shadow)
+        base.paste(rotated, (x, y), rotated)
+        return base.convert("RGB")
+
+    def _render_photo_card(
+        self,
+        image: Image.Image,
+        slot: LayoutSlot,
+        photo: PhotoConfig,
+        progress: float,
+        index: int,
+    ) -> Image.Image:
+        rect = slot.rect
+        card = Image.new("RGBA", (rect.width, rect.height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(card)
+        radius = max(8, int(min(rect.width, rect.height) * 0.022))
+        fill = (246, 240, 229, 255) if slot.frame == "print" else (250, 247, 240, 244)
+        outline = (255, 255, 255, 180) if slot.frame == "clean" else (226, 215, 198, 255)
+        draw.rounded_rectangle((0, 0, rect.width - 1, rect.height - 1), radius=radius, fill=fill, outline=outline, width=2)
+
+        pad = max(8, int(min(rect.width, rect.height) * (0.042 if slot.frame == "print" else 0.026)))
+        has_label = bool(photo.caption or photo.time)
+        label_h = max(0, int(rect.height * 0.14)) if has_label and slot.frame == "print" else 0
+        photo_w = max(1, rect.width - pad * 2)
+        photo_h = max(1, rect.height - pad * 2 - label_h)
+        photo_rect = Rect(0, 0, photo_w, photo_h)
+        drift = -1.0 if index % 2 else 1.0
+        tile = (
+            self._contain_fit(image, photo_rect, progress, drift, background_color=(236, 230, 218))
+            if slot.fit == "contain"
+            else self._cover_crop(image, photo_rect, progress, drift)
+        )
+        tile = tile.convert("RGBA")
+
+        photo_mask = Image.new("L", (photo_w, photo_h), 0)
+        ImageDraw.Draw(photo_mask).rounded_rectangle(
+            (0, 0, photo_w, photo_h),
+            radius=max(6, int(min(photo_w, photo_h) * 0.018)),
+            fill=255,
+        )
+        card.paste(tile, (pad, pad), photo_mask)
+
+        if label_h > 0:
+            self._draw_card_label(card, photo, pad, rect.height - pad - label_h, photo_w, label_h)
+        return card
+
+    def _draw_card_label(self, card: Image.Image, photo: PhotoConfig, x: int, y: int, width: int, height: int) -> None:
+        draw = ImageDraw.Draw(card)
+        text = " · ".join(part for part in (photo.time, photo.caption) if part)
+        if not text:
+            return
+        font_size = max(13, min(28, int(height * 0.42)))
+        font = self.text_renderer.font(font_size, bold=bool(photo.caption))
+        fill = (58, 48, 38, 245)
+        text = self._ellipsize(text, font, width, draw)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_h = bbox[3] - bbox[1]
+        draw.text((x, y + max(0, (height - text_h) // 2 - 1)), text, font=font, fill=fill)
+
+    def _ellipsize(self, text: str, font, max_width: int, draw: ImageDraw.ImageDraw) -> str:
+        if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
+            return text
+        suffix = "..."
+        current = text
+        while current:
+            candidate = current.rstrip() + suffix
+            if draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+                return candidate
+            current = current[:-1]
+        return suffix
 
 
 class ProjectRenderer:

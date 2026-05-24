@@ -5,6 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from photo_memory_video.config_loader import load_config
+from photo_memory_video.web import WebWorkspace
 from photo_memory_video.web_state import preview_time_for_config, project_to_editor_state, scene_pages_state, state_to_config_data
 
 
@@ -93,3 +94,71 @@ scenes:
     assert [page["photoCount"] for page in pages] == [3, 2]
     assert pages[0]["pageCount"] == 2
     assert pages[1]["pageIndex"] == 1
+
+
+def test_web_state_round_trip_keeps_photo_wall_controls(tmp_path: Path) -> None:
+    photo = tmp_path / "photos" / "001.jpg"
+    photo.parent.mkdir(parents=True)
+    Image.new("RGB", (120, 80), (90, 100, 110)).save(photo)
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+scenes:
+  - title: "照片墙"
+    layout: photo_wall
+    wall:
+      max_per_page: 6
+      rotation: 7
+      overlap: 0.2
+    duration: 3
+    photos:
+      - path: "photos/001.jpg"
+        transform:
+          width: 0.32
+          rotation: -4
+""",
+        encoding="utf-8",
+    )
+
+    state = project_to_editor_state(load_config(config_path))
+    state["scenes"][0]["photos"][0]["transform"]["rotation"] = 3
+    data = state_to_config_data(state)
+
+    assert data["scenes"][0]["layout"] == "photo_wall"
+    assert data["scenes"][0]["wall"]["max_per_page"] == 6
+    assert data["scenes"][0]["photos"][0]["transform"]["width"] == 0.32
+    assert data["scenes"][0]["photos"][0]["transform"]["rotation"] == 3
+
+
+def test_web_workspace_can_materialize_photo_wall_auto_transforms(tmp_path: Path) -> None:
+    for index in range(3):
+        photo = tmp_path / "photos" / f"{index + 1:03}.jpg"
+        photo.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (120 + index * 30, 90), (90, 100 + index, 110)).save(photo)
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [640, 360]
+scenes:
+  - title: "照片墙"
+    layout: photo_wall
+    wall:
+      max_per_page: 6
+      rotation: 7
+    duration: 3
+    photos:
+      - path: "photos/001.jpg"
+      - path: "photos/002.jpg"
+      - path: "photos/003.jpg"
+""",
+        encoding="utf-8",
+    )
+    workspace = WebWorkspace(config_path, tmp_path / "output.mp4")
+    state = project_to_editor_state(load_config(config_path))
+
+    result = workspace.auto_photo_wall_transforms(state, scene_index=0, page_index=0)
+
+    assert [item["photoIndex"] for item in result["transforms"]] == [0, 1, 2]
+    assert all(0 < item["transform"]["width"] < 1 for item in result["transforms"])
+    assert all(item["transform"]["fit"] == "contain" for item in result["transforms"])

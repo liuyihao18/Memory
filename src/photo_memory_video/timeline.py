@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config_loader import PhotoConfig, ProjectConfig
+from .config_loader import PhotoConfig, ProjectConfig, WallLayoutConfig
 from .layout import paginate_items
 
 
@@ -15,12 +15,15 @@ class ScenePage:
     description: str | None
     duration: float
     photos: tuple[PhotoConfig, ...]
+    layout: str
+    wall: WallLayoutConfig
 
 
 def build_scene_pages(config: ProjectConfig) -> tuple[ScenePage, ...]:
     pages: list[ScenePage] = []
     for scene_index, scene in enumerate(config.scenes):
-        photo_pages = paginate_items(scene.photos, max_per_page=4)
+        max_per_page = scene.wall.max_per_page if scene.layout == "photo_wall" else 4
+        photo_pages = paginate_items(scene.photos, max_per_page=max_per_page)
         page_duration = scene.duration / len(photo_pages)
         for page_index, photos in enumerate(photo_pages):
             pages.append(
@@ -32,6 +35,8 @@ def build_scene_pages(config: ProjectConfig) -> tuple[ScenePage, ...]:
                     description=scene.description,
                     duration=page_duration,
                     photos=photos,
+                    layout=scene.layout,
+                    wall=scene.wall,
                 )
             )
     return tuple(pages)

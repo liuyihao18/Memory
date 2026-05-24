@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -12,10 +12,24 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 DEFAULT_RESOLUTION = (1920, 1080)
 DEFAULT_FPS = 30
 DEFAULT_SCENE_DURATION = 6.0
+DEFAULT_WALL_MAX_PER_PAGE = 6
+LAYOUT_MODES = {"auto", "grid", "photo_wall"}
+PHOTO_FITS = {"cover", "contain"}
 
 
 class ConfigError(ValueError):
     """Raised when the video config is invalid."""
+
+
+@dataclass(frozen=True)
+class PhotoTransform:
+    x: float | None = None
+    y: float | None = None
+    width: float | None = None
+    height: float | None = None
+    rotation: float | None = None
+    fit: str | None = None
+    z_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -24,6 +38,15 @@ class PhotoConfig:
     caption: str | None = None
     time: str | None = None
     description: str | None = None
+    transform: PhotoTransform | None = None
+
+
+@dataclass(frozen=True)
+class WallLayoutConfig:
+    max_per_page: int = DEFAULT_WALL_MAX_PER_PAGE
+    rotation: float = 6.0
+    overlap: float = 0.12
+    style: str = "print"
 
 
 @dataclass(frozen=True)
@@ -32,6 +55,8 @@ class SceneConfig:
     description: str | None
     duration: float
     photos: tuple[PhotoConfig, ...]
+    layout: str = "auto"
+    wall: WallLayoutConfig = field(default_factory=WallLayoutConfig)
 
 
 @dataclass(frozen=True)
@@ -125,12 +150,16 @@ def _parse_scenes(raw: Any, base_dir: Path) -> tuple[SceneConfig, ...]:
 
 def _parse_scene(raw: Mapping[str, Any], base_dir: Path, index: int) -> SceneConfig:
     duration = _parse_positive_float(raw.get("duration", DEFAULT_SCENE_DURATION), f"scenes[{index}].duration")
+    layout = _parse_layout(raw.get("layout"), f"scenes[{index}].layout")
+    wall = _parse_wall(raw.get("wall"), index)
     photos = _parse_photos(raw.get("photos"), base_dir, index)
     return SceneConfig(
         title=_optional_str(raw.get("title")),
         description=_optional_str(raw.get("description")),
         duration=duration,
         photos=photos,
+        layout=layout,
+        wall=wall,
     )
 
 
@@ -164,18 +193,81 @@ def _expand_photo_entry(item: Any, base_dir: Path, scene_index: int, photo_index
     caption = _optional_str(raw.get("caption"))
     time = _optional_str(raw.get("time"))
     description = _optional_str(raw.get("description"))
+    transform = _parse_transform(raw.get("transform"), scene_index, photo_index)
 
     if path.is_dir():
         image_paths = sorted(child for child in path.iterdir() if child.suffix.lower() in IMAGE_EXTENSIONS and child.is_file())
         if not image_paths:
             raise ConfigError(f"Photo directory has no supported images: {path}")
-        return [PhotoConfig(path=image_path, caption=caption, time=time, description=description) for image_path in image_paths]
+        return [
+            PhotoConfig(path=image_path, caption=caption, time=time, description=description, transform=transform)
+            for image_path in image_paths
+        ]
 
     if not path.exists():
         raise ConfigError(f"Photo does not exist: {path}")
     if path.suffix.lower() not in IMAGE_EXTENSIONS:
         raise ConfigError(f"Unsupported image type: {path}")
-    return [PhotoConfig(path=path, caption=caption, time=time, description=description)]
+    return [PhotoConfig(path=path, caption=caption, time=time, description=description, transform=transform)]
+
+
+def _parse_layout(value: Any, label: str) -> str:
+    text = (_optional_str(value) or "auto").lower()
+    if text not in LAYOUT_MODES:
+        raise ConfigError(f"{label} must be one of: {', '.join(sorted(LAYOUT_MODES))}.")
+    return text
+
+
+def _parse_wall(value: Any, scene_index: int) -> WallLayoutConfig:
+    if value is None:
+        return WallLayoutConfig()
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"scenes[{scene_index}].wall must be a mapping.")
+
+    max_per_page = _parse_positive_int(value.get("max_per_page", DEFAULT_WALL_MAX_PER_PAGE), f"scenes[{scene_index}].wall.max_per_page")
+    if max_per_page > 9:
+        raise ConfigError(f"scenes[{scene_index}].wall.max_per_page must be <= 9.")
+    rotation = _parse_non_negative_float(value.get("rotation", 6.0), f"scenes[{scene_index}].wall.rotation")
+    if rotation > 20:
+        raise ConfigError(f"scenes[{scene_index}].wall.rotation must be <= 20.")
+    overlap = _parse_non_negative_float(value.get("overlap", 0.12), f"scenes[{scene_index}].wall.overlap")
+    if overlap > 0.45:
+        raise ConfigError(f"scenes[{scene_index}].wall.overlap must be <= 0.45.")
+    style = (_optional_str(value.get("style")) or "print").lower()
+    if style not in {"print", "clean"}:
+        raise ConfigError(f"scenes[{scene_index}].wall.style must be 'print' or 'clean'.")
+    return WallLayoutConfig(max_per_page=max_per_page, rotation=rotation, overlap=overlap, style=style)
+
+
+def _parse_transform(value: Any, scene_index: int, photo_index: int) -> PhotoTransform | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"scenes[{scene_index}].photos[{photo_index}].transform must be a mapping.")
+
+    transform = PhotoTransform(
+        x=_parse_optional_range(value.get("x"), f"scenes[{scene_index}].photos[{photo_index}].transform.x", 0.0, 1.0),
+        y=_parse_optional_range(value.get("y"), f"scenes[{scene_index}].photos[{photo_index}].transform.y", 0.0, 1.0),
+        width=_parse_optional_range(value.get("width"), f"scenes[{scene_index}].photos[{photo_index}].transform.width", 0.08, 0.95),
+        height=_parse_optional_range(value.get("height"), f"scenes[{scene_index}].photos[{photo_index}].transform.height", 0.08, 0.95),
+        rotation=_parse_optional_range(value.get("rotation"), f"scenes[{scene_index}].photos[{photo_index}].transform.rotation", -45.0, 45.0),
+        fit=_parse_optional_fit(value.get("fit"), f"scenes[{scene_index}].photos[{photo_index}].transform.fit"),
+        z_index=_parse_optional_int(value.get("z_index"), f"scenes[{scene_index}].photos[{photo_index}].transform.z_index"),
+    )
+    if all(
+        item is None
+        for item in (
+            transform.x,
+            transform.y,
+            transform.width,
+            transform.height,
+            transform.rotation,
+            transform.fit,
+            transform.z_index,
+        )
+    ):
+        return None
+    return transform
 
 
 def _resolve_path(value: str, base_dir: Path) -> Path:
@@ -249,6 +341,37 @@ def _parse_non_negative_float(value: Any, label: str) -> float:
     if number < 0:
         raise ConfigError(f"{label} must be >= 0.")
     return number
+
+
+def _parse_optional_range(value: Any, label: str, minimum: float, maximum: float) -> float | None:
+    if value is None or _optional_str(value) is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{label} must be a number.") from exc
+    if number < minimum or number > maximum:
+        raise ConfigError(f"{label} must be between {minimum} and {maximum}.")
+    return number
+
+
+def _parse_optional_int(value: Any, label: str) -> int | None:
+    if value is None or _optional_str(value) is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{label} must be an integer.") from exc
+
+
+def _parse_optional_fit(value: Any, label: str) -> str | None:
+    text = _optional_str(value)
+    if text is None:
+        return None
+    normalized = text.lower()
+    if normalized not in PHOTO_FITS:
+        raise ConfigError(f"{label} must be 'cover' or 'contain'.")
+    return normalized
 
 
 def _optional_str(value: Any) -> str | None:

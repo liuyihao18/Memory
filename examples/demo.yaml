@@ -29,12 +29,22 @@ scenes:
 
   - title: "毕业前夜"
     description: "时间走得很轻，可回头看已经很远。"
+    layout: photo_wall
+    wall:
+      max_per_page: 6
+      rotation: 8
+      overlap: 0.16
     duration: 7
     photos:
       - path: "photos/004.jpg"
         time: "2026.06"
         caption: "聊到凌晨"
+        transform:
+          rotation: -4
+          width: 0.34
       - path: "photos/005.jpg"
         caption: "最后一次走过图书馆"
       - path: "photos/006.jpg"
         caption: "把夏天装进行李箱"
+        transform:
+          rotation: 5

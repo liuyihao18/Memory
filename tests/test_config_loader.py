@@ -61,6 +61,44 @@ scenes:
     assert [photo.path.name for photo in config.scenes[0].photos] == ["a.png", "b.jpg"]
 
 
+def test_loads_photo_wall_layout_and_transform(tmp_path: Path) -> None:
+    _image(tmp_path / "photos" / "001.jpg")
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+scenes:
+  - title: "照片墙"
+    layout: photo_wall
+    wall:
+      max_per_page: 6
+      rotation: 8
+      overlap: 0.18
+    photos:
+      - path: "photos/001.jpg"
+        caption: "第一张"
+        transform:
+          x: 0.42
+          y: 0.58
+          width: 0.34
+          rotation: -5
+          fit: contain
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    scene = config.scenes[0]
+    photo = scene.photos[0]
+
+    assert scene.layout == "photo_wall"
+    assert scene.wall.max_per_page == 6
+    assert scene.wall.rotation == 8
+    assert photo.transform is not None
+    assert photo.transform.x == 0.42
+    assert photo.transform.rotation == -5
+    assert photo.transform.fit == "contain"
+
+
 def test_rejects_missing_photo(tmp_path: Path) -> None:
     config_path = tmp_path / "bad.yaml"
     config_path.write_text(

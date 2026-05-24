@@ -97,6 +97,28 @@ scenes:
         caption: "第一次聚餐"
 ```
 
+照片墙模式可以让单个场景更自由地错落排版：
+
+```yaml
+scenes:
+  - title: "社团活动"
+    layout: photo_wall
+    wall:
+      max_per_page: 6
+      rotation: 8
+      overlap: 0.16
+    duration: 6
+    photos:
+      - path: "photos/001.jpg"
+        caption: "第一次参加社团活动"
+      - path: "photos/002.jpg"
+        transform:
+          x: 0.62
+          y: 0.46
+          width: 0.34
+          rotation: 5
+```
+
 说明：
 
 - `resolution` 默认是 `[1920, 1080]`。
@@ -104,6 +126,7 @@ scenes:
 - `duration` 是 scene 时长，单位秒。
 - `photos` 可以写单张图片路径，也可以写目录路径；目录会按文件名读取常见图片格式。
 - 图片路径相对配置文件所在目录解析，不会修改原始图片。
+- `layout: photo_wall` 会启用照片墙；`transform` 可选，用于微调单张照片的位置、宽度、旋转和适配方式。
 
 ## 开发验证
 
