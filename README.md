@@ -1,5 +1,7 @@
 # Photo Memory Video
 
+> Produced by Codex.
+
 大学回忆视频生成器：从 YAML / JSON 配置读取照片、标题、时间和描述，自动排版并用 MoviePy 生成温暖、克制、有纪念册气质的 MP4 视频。
 
 项目目标不是做花哨模板，而是把照片、文字和时间感稳定地组织成可回看的影像。
