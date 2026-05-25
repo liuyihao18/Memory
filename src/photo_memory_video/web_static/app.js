@@ -76,6 +76,7 @@ function render() {
   el("backgroundColor").value = state.video.background_color || "#181614";
   el("transitionDuration").value = state.video.transition_duration ?? 0.8;
   el("fadeDuration").value = state.video.fade_duration ?? 0.6;
+  el("sceneZoom").checked = state.video.scene_zoom !== false;
   renderSceneList();
   renderSceneEditor();
 }
@@ -449,6 +450,7 @@ function readVideoForm() {
   state.video.background_color = el("backgroundColor").value;
   state.video.transition_duration = Number(el("transitionDuration").value);
   state.video.fade_duration = Number(el("fadeDuration").value);
+  state.video.scene_zoom = el("sceneZoom").checked;
 }
 
 function addScene() {
@@ -1093,7 +1095,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-for (const id of ["videoTitle", "videoWidth", "videoHeight", "videoFps", "backgroundColor", "transitionDuration", "fadeDuration"]) {
+for (const id of ["videoTitle", "videoWidth", "videoHeight", "videoFps", "backgroundColor", "transitionDuration", "fadeDuration", "sceneZoom"]) {
   el(id).addEventListener("input", () => {
     readVideoForm();
     schedulePreview();

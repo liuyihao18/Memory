@@ -18,6 +18,7 @@ def project_to_editor_state(config: ProjectConfig, output_path: Path | None = No
             "background_color": rgb_to_hex(config.video.background_color),
             "transition_duration": config.video.transition_duration,
             "fade_duration": config.video.fade_duration,
+            "scene_zoom": config.video.scene_zoom,
             "font": display_path(config.video.font_path, config.base_dir) if config.video.font_path else "",
         },
         "scenes": [
@@ -65,6 +66,7 @@ def state_to_config_data(state: Mapping[str, Any]) -> dict[str, Any]:
                 "background_color": optional_text(video.get("background_color")) or "#181614",
                 "transition_duration": parse_float(video.get("transition_duration"), "video.transition_duration"),
                 "fade_duration": parse_float(video.get("fade_duration"), "video.fade_duration"),
+                "scene_zoom": optional_bool(video.get("scene_zoom"), "video.scene_zoom", default=True),
                 "font": optional_text(video.get("font")),
             }
         ),
@@ -273,6 +275,19 @@ def optional_int(value: Any, label: str) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{label} must be an integer.") from exc
+
+
+def optional_bool(value: Any, label: str, default: bool) -> bool:
+    if value is None or optional_text(value) is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "on", "1"}:
+        return True
+    if text in {"false", "no", "off", "0"}:
+        return False
+    raise ConfigError(f"{label} must be true or false.")
 
 
 def rgb_to_hex(color: tuple[int, int, int]) -> str:

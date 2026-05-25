@@ -179,6 +179,7 @@ class TextRenderer:
             y -= panel_h
         panel_w = min(panel_w, max_width + self._padding() * 2)
 
+        preserve_alpha = image.mode == "RGBA"
         base = image.convert("RGBA")
         overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
@@ -197,7 +198,8 @@ class TextRenderer:
             )
             cursor_y += self._line_height(line.font) + self._line_gap()
 
-        return Image.alpha_composite(base, overlay).convert("RGB")
+        composed = Image.alpha_composite(base, overlay)
+        return composed if preserve_alpha else composed.convert("RGB")
 
     def _trim_to_height(self, lines: list[TextLine], max_height: int) -> list[TextLine]:
         result: list[TextLine] = []

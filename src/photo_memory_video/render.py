@@ -41,9 +41,27 @@ class PageRenderer:
         self.photo_sizes = [image.size for image in self.images]
         self.slots = self._build_slots()
         self.background = self._make_background()
+        self._photo_layer: Image.Image | None = None
+        self._heading_layer: Image.Image | None = None
 
     def make_frame(self, t: float) -> np.ndarray:
         progress = clamp01(t / max(self.page.duration, 0.001))
+        photo_layer = self._cached_photo_layer()
+        canvas = self._apply_scene_zoom(photo_layer, progress) if self.video.scene_zoom else photo_layer
+        canvas = Image.alpha_composite(canvas.convert("RGBA"), self._cached_heading_layer()).convert("RGB")
+        return np.asarray(canvas, dtype=np.uint8)
+
+    def _cached_photo_layer(self) -> Image.Image:
+        if self._photo_layer is None:
+            self._photo_layer = self._render_photo_layer()
+        return self._photo_layer
+
+    def _cached_heading_layer(self) -> Image.Image:
+        if self._heading_layer is None:
+            self._heading_layer = self._render_heading_layer()
+        return self._heading_layer
+
+    def _render_photo_layer(self) -> Image.Image:
         canvas = self.background.copy()
         draw_items = sorted(zip(self.photos, self.images, self.slots), key=lambda item: item[2].z_index)
         for photo, image, slot in draw_items:
@@ -56,11 +74,12 @@ class PageRenderer:
 
             compact = len(self.photos) > 1
             canvas = self.text_renderer.draw_photo_text(canvas, slot.rect, photo, compact=compact)
+        return canvas
 
-        canvas = self._apply_scene_zoom(canvas, progress)
+    def _render_heading_layer(self) -> Image.Image:
+        layer = Image.new("RGBA", self.canvas_size, (0, 0, 0, 0))
         title = self._page_title()
-        canvas = self.text_renderer.draw_scene_heading(canvas, title, self.page.description)
-        return np.asarray(canvas.convert("RGB"), dtype=np.uint8)
+        return self.text_renderer.draw_scene_heading(layer, title, self.page.description).convert("RGBA")
 
     def close(self) -> None:
         for image in self.images:
@@ -156,12 +175,15 @@ class PageRenderer:
         if zoom <= 1.0001:
             return image
         width, height = image.size
-        resized_w = int(math.ceil(width * zoom))
-        resized_h = int(math.ceil(height * zoom))
-        resized = image.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
-        left = max(0, (resized_w - width) // 2)
-        top = max(0, (resized_h - height) // 2)
-        return resized.crop((left, top, left + width, top + height))
+        source_w = width / zoom
+        source_h = height / zoom
+        left = (width - source_w) / 2
+        top = (height - source_h) / 2
+        return image.resize(
+            image.size,
+            Image.Resampling.LANCZOS,
+            box=(left, top, left + source_w, top + source_h),
+        )
 
     def _paste_tile(self, canvas: Image.Image, tile: Image.Image, slot: LayoutSlot, rounded: bool) -> Image.Image:
         rect = slot.rect

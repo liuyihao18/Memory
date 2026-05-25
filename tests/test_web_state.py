@@ -20,6 +20,7 @@ video:
   title: "大学回忆"
   resolution: [640, 360]
   fps: 12
+  scene_zoom: false
 scenes:
   - title: "大一"
     description: "刚开始"
@@ -40,6 +41,7 @@ scenes:
 
     assert data["video"]["title"] == "大学回忆"
     assert data["video"]["resolution"] == [640, 360]
+    assert data["video"]["scene_zoom"] is False
     assert data["scenes"][0]["title"] == "大一"
     assert data["scenes"][0]["photos"][0]["path"] == "photos/001.jpg"
     assert data["scenes"][0]["photos"][0]["caption"] == "第一次社团活动"

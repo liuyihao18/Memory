@@ -22,6 +22,7 @@ video:
   title: "大学回忆"
   resolution: [640, 360]
   fps: 12
+  scene_zoom: false
 scenes:
   - title: "大一"
     duration: 3
@@ -37,6 +38,7 @@ scenes:
     assert config.video.title == "大学回忆"
     assert config.video.resolution == (640, 360)
     assert config.video.fps == 12
+    assert config.video.scene_zoom is False
     assert config.scenes[0].photos[0].path == (tmp_path / "photos" / "001.jpg").resolve()
     assert config.scenes[0].photos[0].caption == "第一次班会"
 

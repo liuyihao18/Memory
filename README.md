@@ -19,6 +19,7 @@
 - CLI 渲染 MP4
 - Web UI 编排、预览、文件选择、渲染进度
 - 照片墙图形编辑器，可拖动、缩放、旋转和调整层级
+- 可关闭整页轻微缩放以获得静态纪念册效果
 
 ## 安装
 
@@ -139,6 +140,7 @@ video:
   fps: 30
   transition_duration: 0.8
   fade_duration: 0.6
+  scene_zoom: true
 
 scenes:
   - title: "大一"
@@ -185,6 +187,7 @@ scenes:
 - `resolution` 默认是 `[1920, 1080]`
 - `fps` 默认是 `30`
 - `duration` 是 scene 时长，单位秒
+- `scene_zoom` 控制整页轻微缩放，默认 `true`
 - `photos` 可以写单张图片路径，也可以写目录路径
 - 图片路径相对配置文件所在目录解析
 - 程序不会修改原始图片

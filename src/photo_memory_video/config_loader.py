@@ -67,6 +67,7 @@ class VideoConfig:
     background_color: tuple[int, int, int] = (24, 22, 20)
     transition_duration: float = 0.8
     fade_duration: float = 0.6
+    scene_zoom: bool = True
     font_path: Path | None = None
 
 
@@ -121,6 +122,7 @@ def _parse_video(raw: Mapping[str, Any], base_dir: Path) -> VideoConfig:
     background_color = _parse_color(raw.get("background_color", "#181614"))
     transition_duration = _parse_non_negative_float(raw.get("transition_duration", 0.8), "video.transition_duration")
     fade_duration = _parse_non_negative_float(raw.get("fade_duration", 0.6), "video.fade_duration")
+    scene_zoom = _parse_bool(raw.get("scene_zoom", True), "video.scene_zoom")
     font_path = _parse_optional_path(raw.get("font"), base_dir)
 
     return VideoConfig(
@@ -130,6 +132,7 @@ def _parse_video(raw: Mapping[str, Any], base_dir: Path) -> VideoConfig:
         background_color=background_color,
         transition_duration=transition_duration,
         fade_duration=fade_duration,
+        scene_zoom=scene_zoom,
         font_path=font_path,
     )
 
@@ -341,6 +344,18 @@ def _parse_non_negative_float(value: Any, label: str) -> float:
     if number < 0:
         raise ConfigError(f"{label} must be >= 0.")
     return number
+
+
+def _parse_bool(value: Any, label: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "on", "1"}:
+            return True
+        if normalized in {"false", "no", "off", "0"}:
+            return False
+    raise ConfigError(f"{label} must be true or false.")
 
 
 def _parse_optional_range(value: Any, label: str, minimum: float, maximum: float) -> float | None:

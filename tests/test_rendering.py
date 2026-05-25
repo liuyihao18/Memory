@@ -214,6 +214,66 @@ scenes:
     assert ImageChops.difference(first, late).getbbox() is not None
 
 
+def test_scene_zoom_can_be_disabled(tmp_path: Path) -> None:
+    _gradient_image(tmp_path / "photos" / "001.jpg", (320, 180))
+    config_path = tmp_path / "demo.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+  fade_duration: 0
+  transition_duration: 0
+  scene_zoom: false
+scenes:
+  - duration: 2
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    renderer = ProjectRenderer(load_config(config_path))
+    try:
+        first = Image.fromarray(renderer.make_frame(0.0))
+        late = Image.fromarray(renderer.make_frame(1.8))
+    finally:
+        renderer.close()
+
+    assert ImageChops.difference(first, late).getbbox() is None
+
+
+def test_page_renderer_lazily_caches_static_layers(tmp_path: Path) -> None:
+    _gradient_image(tmp_path / "photos" / "001.jpg", (320, 180))
+    config_path = tmp_path / "demo.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+  scene_zoom: false
+scenes:
+  - title: "cache"
+    duration: 2
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    renderer = ProjectRenderer(load_config(config_path))
+    try:
+        page_renderer = renderer.rendered_pages[0].renderer
+        assert page_renderer._photo_layer is None
+        assert page_renderer._heading_layer is None
+        renderer.make_frame(0.0)
+        assert page_renderer._photo_layer is not None
+        assert page_renderer._heading_layer is not None
+        photo_layer = page_renderer._photo_layer
+        heading_layer = page_renderer._heading_layer
+        renderer.make_frame(1.0)
+        assert page_renderer._photo_layer is photo_layer
+        assert page_renderer._heading_layer is heading_layer
+    finally:
+        renderer.close()
+
+
 def test_card_label_font_size_scales_with_supersampling() -> None:
     assert _card_label_font_size(60, 1) == 25
     assert _card_label_font_size(60 * PHOTO_CARD_SUPERSAMPLE, PHOTO_CARD_SUPERSAMPLE) == 50

@@ -306,6 +306,17 @@ h3 {
   gap: 8px;
 }
 
+.toggle-field {
+  align-content: end;
+}
+
+.toggle-field input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
 .scene-editor {
   display: grid;
   gap: 18px;
