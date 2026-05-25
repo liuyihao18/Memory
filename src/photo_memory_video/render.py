@@ -18,6 +18,8 @@ from .transitions import blend_frames, clamp01, fade_to_color, smoothstep
 
 FrameFunction = Callable[[float], np.ndarray]
 ProgressCallback = Callable[[float, str], None]
+SCENE_ZOOM_AMOUNT = 0.025
+PHOTO_CARD_SUPERSAMPLE = 2
 
 
 @dataclass(frozen=True)
@@ -43,21 +45,19 @@ class PageRenderer:
     def make_frame(self, t: float) -> np.ndarray:
         progress = clamp01(t / max(self.page.duration, 0.001))
         canvas = self.background.copy()
-        draw_items = sorted(
-            enumerate(zip(self.photos, self.images, self.slots)),
-            key=lambda item: item[1][2].z_index,
-        )
-        for index, (photo, image, slot) in draw_items:
+        draw_items = sorted(zip(self.photos, self.images, self.slots), key=lambda item: item[2].z_index)
+        for photo, image, slot in draw_items:
             if slot.frame in {"print", "clean"}:
-                canvas = self._paste_photo_card(canvas, image, slot, photo, progress, index)
+                canvas = self._paste_photo_card(canvas, image, slot, photo)
                 continue
 
-            tile = self._render_photo(image, slot, progress, index)
+            tile = self._render_photo(image, slot)
             canvas = self._paste_tile(canvas, tile, slot, rounded=len(self.photos) > 1 or slot.fit == "contain")
 
             compact = len(self.photos) > 1
             canvas = self.text_renderer.draw_photo_text(canvas, slot.rect, photo, compact=compact)
 
+        canvas = self._apply_scene_zoom(canvas, progress)
         title = self._page_title()
         canvas = self.text_renderer.draw_scene_heading(canvas, title, self.page.description)
         return np.asarray(canvas.convert("RGB"), dtype=np.uint8)
@@ -91,7 +91,7 @@ class PageRenderer:
         if not self.images:
             return base
 
-        cover = self._cover_crop(self.images[0], Rect(0, 0, *self.canvas_size), progress=0.5, drift=0.0)
+        cover = self._cover_crop(self.images[0], Rect(0, 0, *self.canvas_size))
         cover = cover.filter(ImageFilter.GaussianBlur(radius=max(18, int(min(self.canvas_size) * 0.045))))
         cover = ImageEnhance.Color(cover).enhance(0.72)
         cover = ImageEnhance.Brightness(cover).enhance(0.58)
@@ -110,24 +110,21 @@ class PageRenderer:
         vignette = Image.fromarray(overlay)
         return Image.alpha_composite(image.convert("RGBA"), vignette).convert("RGB")
 
-    def _render_photo(self, image: Image.Image, slot: LayoutSlot, progress: float, index: int) -> Image.Image:
-        drift = -1.0 if index % 2 else 1.0
+    def _render_photo(self, image: Image.Image, slot: LayoutSlot) -> Image.Image:
         if slot.fit == "contain":
-            return self._contain_fit(image, slot.rect, progress, drift)
-        return self._cover_crop(image, slot.rect, progress, drift)
+            return self._contain_fit(image, slot.rect)
+        return self._cover_crop(image, slot.rect)
 
-    def _cover_crop(self, image: Image.Image, rect: Rect, progress: float, drift: float) -> Image.Image:
-        zoom = 1.035 + smoothstep(progress) * 0.055
-        scale = max(rect.width / image.width, rect.height / image.height) * zoom
+    def _cover_crop(self, image: Image.Image, rect: Rect) -> Image.Image:
+        scale = max(rect.width / image.width, rect.height / image.height)
         resized_w = max(rect.width, int(math.ceil(image.width * scale)))
         resized_h = max(rect.height, int(math.ceil(image.height * scale)))
         resized = image.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
 
         extra_x = max(0, resized_w - rect.width)
         extra_y = max(0, resized_h - rect.height)
-        pan = (smoothstep(progress) - 0.5) * 0.28 * drift
-        crop_x = int(extra_x * (0.5 + pan))
-        crop_y = int(extra_y * (0.5 - pan * 0.45))
+        crop_x = extra_x // 2
+        crop_y = extra_y // 2
         crop_x = max(0, min(extra_x, crop_x))
         crop_y = max(0, min(extra_y, crop_y))
         return resized.crop((crop_x, crop_y, crop_x + rect.width, crop_y + rect.height))
@@ -136,12 +133,9 @@ class PageRenderer:
         self,
         image: Image.Image,
         rect: Rect,
-        progress: float,
-        drift: float,
         background_color: tuple[int, int, int] | None = None,
     ) -> Image.Image:
-        zoom = 1.0 + smoothstep(progress) * 0.035
-        scale = min(rect.width / image.width, rect.height / image.height) * zoom
+        scale = min(rect.width / image.width, rect.height / image.height)
         resized_w = int(math.ceil(image.width * scale))
         resized_h = int(math.ceil(image.height * scale))
         resized = image.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
@@ -156,6 +150,18 @@ class PageRenderer:
         y = max(0, (rect.height - resized.height) // 2)
         tile.paste(resized, (x, y))
         return tile
+
+    def _apply_scene_zoom(self, image: Image.Image, progress: float) -> Image.Image:
+        zoom = 1.0 + smoothstep(progress) * SCENE_ZOOM_AMOUNT
+        if zoom <= 1.0001:
+            return image
+        width, height = image.size
+        resized_w = int(math.ceil(width * zoom))
+        resized_h = int(math.ceil(height * zoom))
+        resized = image.resize((resized_w, resized_h), Image.Resampling.LANCZOS)
+        left = max(0, (resized_w - width) // 2)
+        top = max(0, (resized_h - height) // 2)
+        return resized.crop((left, top, left + width, top + height))
 
     def _paste_tile(self, canvas: Image.Image, tile: Image.Image, slot: LayoutSlot, rounded: bool) -> Image.Image:
         rect = slot.rect
@@ -188,11 +194,22 @@ class PageRenderer:
         image: Image.Image,
         slot: LayoutSlot,
         photo: PhotoConfig,
-        progress: float,
-        index: int,
     ) -> Image.Image:
-        card = self._render_photo_card(image, slot, photo, progress, index)
+        sample = PHOTO_CARD_SUPERSAMPLE
+        rect = slot.rect
+        scaled_slot = LayoutSlot(
+            rect=Rect(0, 0, rect.width * sample, rect.height * sample),
+            fit=slot.fit,
+            rotation=slot.rotation,
+            z_index=slot.z_index,
+            frame=slot.frame,
+        )
+        card = self._render_photo_card(image, scaled_slot, photo, render_scale=sample)
         rotated = card.rotate(slot.rotation, resample=Image.Resampling.BICUBIC, expand=True)
+        rotated = rotated.resize(
+            (max(1, int(round(rotated.width / sample))), max(1, int(round(rotated.height / sample)))),
+            Image.Resampling.LANCZOS,
+        )
         rect = slot.rect
         x = rect.x + rect.width // 2 - rotated.width // 2
         y = rect.y + rect.height // 2 - rotated.height // 2
@@ -210,8 +227,7 @@ class PageRenderer:
         image: Image.Image,
         slot: LayoutSlot,
         photo: PhotoConfig,
-        progress: float,
-        index: int,
+        render_scale: int = 1,
     ) -> Image.Image:
         rect = slot.rect
         card = Image.new("RGBA", (rect.width, rect.height), (0, 0, 0, 0))
@@ -219,7 +235,13 @@ class PageRenderer:
         radius = max(8, int(min(rect.width, rect.height) * 0.022))
         fill = (246, 240, 229, 255) if slot.frame == "print" else (250, 247, 240, 244)
         outline = (255, 255, 255, 180) if slot.frame == "clean" else (226, 215, 198, 255)
-        draw.rounded_rectangle((0, 0, rect.width - 1, rect.height - 1), radius=radius, fill=fill, outline=outline, width=2)
+        draw.rounded_rectangle(
+            (0, 0, rect.width - 1, rect.height - 1),
+            radius=radius,
+            fill=fill,
+            outline=outline,
+            width=max(1, 2 * render_scale),
+        )
 
         pad = max(8, int(min(rect.width, rect.height) * (0.042 if slot.frame == "print" else 0.026)))
         has_label = bool(photo.caption or photo.time)
@@ -227,11 +249,10 @@ class PageRenderer:
         photo_w = max(1, rect.width - pad * 2)
         photo_h = max(1, rect.height - pad * 2 - label_h)
         photo_rect = Rect(0, 0, photo_w, photo_h)
-        drift = -1.0 if index % 2 else 1.0
         tile = (
-            self._contain_fit(image, photo_rect, progress, drift, background_color=(236, 230, 218))
+            self._contain_fit(image, photo_rect, background_color=(236, 230, 218))
             if slot.fit == "contain"
-            else self._cover_crop(image, photo_rect, progress, drift)
+            else self._cover_crop(image, photo_rect)
         )
         tile = tile.convert("RGBA")
 
@@ -244,15 +265,24 @@ class PageRenderer:
         card.paste(tile, (pad, pad), photo_mask)
 
         if label_h > 0:
-            self._draw_card_label(card, photo, pad, rect.height - pad - label_h, photo_w, label_h)
+            self._draw_card_label(card, photo, pad, rect.height - pad - label_h, photo_w, label_h, render_scale)
         return card
 
-    def _draw_card_label(self, card: Image.Image, photo: PhotoConfig, x: int, y: int, width: int, height: int) -> None:
+    def _draw_card_label(
+        self,
+        card: Image.Image,
+        photo: PhotoConfig,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        render_scale: int = 1,
+    ) -> None:
         draw = ImageDraw.Draw(card)
         text = " · ".join(part for part in (photo.time, photo.caption) if part)
         if not text:
             return
-        font_size = max(13, min(28, int(height * 0.42)))
+        font_size = _card_label_font_size(height, render_scale)
         font = self.text_renderer.font(font_size, bold=bool(photo.caption))
         fill = (58, 48, 38, 245)
         text = self._ellipsize(text, font, width, draw)
@@ -271,6 +301,11 @@ class PageRenderer:
                 return candidate
             current = current[:-1]
         return suffix
+
+
+def _card_label_font_size(height: int, render_scale: int = 1) -> int:
+    scale = max(1, int(render_scale))
+    return max(13 * scale, min(28 * scale, int(height * 0.42)))
 
 
 class ProjectRenderer:

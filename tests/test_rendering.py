@@ -6,13 +6,23 @@ from PIL import Image, ImageChops
 
 from photo_memory_video.config_loader import PhotoConfig, load_config
 from photo_memory_video.layout import Rect
-from photo_memory_video.render import ProjectRenderer, render_preview_page
+from photo_memory_video.render import PHOTO_CARD_SUPERSAMPLE, ProjectRenderer, _card_label_font_size, render_preview_page
 from photo_memory_video.text_renderer import TextRenderer
 
 
 def _image(path: Path, size: tuple[int, int], color: tuple[int, int, int]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", size, color).save(path)
+
+
+def _gradient_image(path: Path, size: tuple[int, int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", size)
+    width, height = size
+    for y in range(height):
+        for x in range(width):
+            image.putpixel((x, y), ((x * 255) // width, (y * 255) // height, ((x + y) * 255) // (width + height)))
+    image.save(path)
 
 
 def test_text_renderer_draws_chinese_caption(tmp_path: Path) -> None:
@@ -140,15 +150,71 @@ scenes:
     renderer = ProjectRenderer(load_config(config_path))
     try:
         page_renderer = renderer.rendered_pages[0].renderer
-        tile = page_renderer._contain_fit(
-            Image.new("RGB", (100, 200), (200, 80, 60)),
-            Rect(0, 0, 300, 200),
-            progress=1.0,
-            drift=1.0,
-            background_color=(236, 230, 218),
-        )
+        tile = page_renderer._contain_fit(Image.new("RGB", (100, 200), (200, 80, 60)), Rect(0, 0, 300, 200), background_color=(236, 230, 218))
     finally:
         renderer.close()
 
     assert tile.getpixel((0, 100)) == (236, 230, 218)
     assert tile.getpixel((299, 100)) == (236, 230, 218)
+
+
+def test_photo_fit_uses_static_center_crop(tmp_path: Path) -> None:
+    photo_path = tmp_path / "photos" / "001.jpg"
+    _gradient_image(photo_path, (140, 100))
+    config_path = tmp_path / "demo.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+scenes:
+  - duration: 1
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    renderer = ProjectRenderer(load_config(config_path))
+    try:
+        page_renderer = renderer.rendered_pages[0].renderer
+        with Image.open(photo_path) as source:
+            image = source.convert("RGB")
+        cover = page_renderer._cover_crop(image, Rect(0, 0, 120, 80))
+        contain = page_renderer._contain_fit(image, Rect(0, 0, 120, 120))
+    finally:
+        renderer.close()
+
+    assert cover.size == (120, 80)
+    assert contain.size == (120, 120)
+    assert cover.getpixel((60, 40)) == image.resize((120, 86), Image.Resampling.LANCZOS).getpixel((60, 43))
+
+
+def test_page_renderer_applies_scene_level_zoom(tmp_path: Path) -> None:
+    _gradient_image(tmp_path / "photos" / "001.jpg", (320, 180))
+    config_path = tmp_path / "demo.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+  fade_duration: 0
+  transition_duration: 0
+scenes:
+  - duration: 2
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    renderer = ProjectRenderer(load_config(config_path))
+    try:
+        first = Image.fromarray(renderer.make_frame(0.0))
+        late = Image.fromarray(renderer.make_frame(1.8))
+    finally:
+        renderer.close()
+
+    assert ImageChops.difference(first, late).getbbox() is not None
+
+
+def test_card_label_font_size_scales_with_supersampling() -> None:
+    assert _card_label_font_size(60, 1) == 25
+    assert _card_label_font_size(60 * PHOTO_CARD_SUPERSAMPLE, PHOTO_CARD_SUPERSAMPLE) == 50
+    assert _card_label_font_size(200, PHOTO_CARD_SUPERSAMPLE) == 56

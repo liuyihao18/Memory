@@ -14,7 +14,7 @@
 - 5 张及以上自动分页
 - `photo_wall` 照片墙布局，支持位置、宽度、旋转、层级、适配方式
 - 中文文字渲染、自动换行、阴影和半透明文字底
-- Ken Burns 缓慢缩放和平移
+- 场景级缓慢缩放，避免多张照片各自放大造成的不协调
 - 柔和淡入淡出与跨页转场
 - CLI 渲染 MP4
 - Web UI 编排、预览、文件选择、渲染进度
@@ -193,6 +193,7 @@ scenes:
 - `wall.rotation` 控制自动照片墙旋转强度
 - `wall.overlap` 控制自动照片墙错落重叠感
 - `wall.style` 支持 `print` 和 `clean`
+- 照片墙卡片内部照片保持静态取景，整体页面会做统一的轻微缩放
 - `transform.x`、`transform.y` 是照片卡片中心点的归一化坐标
 - `transform.width` 是卡片宽度占画布宽度的比例
 - `transform.rotation` 范围是 `-45` 到 `45`
