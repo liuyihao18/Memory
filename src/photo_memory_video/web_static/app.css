@@ -317,6 +317,13 @@ h3 {
   accent-color: var(--accent);
 }
 
+.checkbox-input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
 .scene-editor {
   display: grid;
   gap: 18px;

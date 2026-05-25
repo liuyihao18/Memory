@@ -20,6 +20,8 @@ FrameFunction = Callable[[float], np.ndarray]
 ProgressCallback = Callable[[float, str], None]
 SCENE_ZOOM_AMOUNT = 0.025
 PHOTO_CARD_SUPERSAMPLE = 2
+TILE_SHADOW_ALPHA = 70
+PHOTO_CARD_SHADOW_ALPHA = 84
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,11 @@ class PageRenderer:
                 rotation_limit=self.page.wall.rotation,
                 overlap=self.page.wall.overlap,
                 style=self.page.wall.style,
+                card_width=self.page.wall.card_width,
+                spread=self.page.wall.spread,
+                caption_safe=self.page.wall.caption_safe,
+                randomness=self.page.wall.randomness,
+                random_seed=self.page.wall.random_seed,
             )
         return layout_for_count(len(self.photos), self.canvas_size, self.photo_sizes)
 
@@ -203,8 +210,8 @@ class PageRenderer:
 
         if rounded:
             shadow = Image.new("RGBA", base.size, (0, 0, 0, 0))
-            shadow_mask = mask.filter(ImageFilter.GaussianBlur(radius=12))
-            shadow.paste((0, 0, 0, 95), (rect.x + 8, rect.y + 10), shadow_mask)
+            shadow_mask = mask.filter(ImageFilter.GaussianBlur(radius=max(12, int(min(rect.width, rect.height) * 0.035))))
+            shadow.paste((0, 0, 0, TILE_SHADOW_ALPHA), (rect.x + 7, rect.y + 9), shadow_mask)
             base = Image.alpha_composite(base, shadow)
 
         base.paste(tile_rgba, (rect.x, rect.y), mask)
@@ -238,9 +245,9 @@ class PageRenderer:
 
         base = canvas.convert("RGBA")
         alpha = rotated.getchannel("A")
-        shadow = Image.new("RGBA", rotated.size, (0, 0, 0, 120))
-        shadow.putalpha(alpha.filter(ImageFilter.GaussianBlur(radius=max(10, int(min(rect.width, rect.height) * 0.035)))))
-        base.paste(shadow, (x + 10, y + 14), shadow)
+        shadow = Image.new("RGBA", rotated.size, (0, 0, 0, PHOTO_CARD_SHADOW_ALPHA))
+        shadow.putalpha(alpha.filter(ImageFilter.GaussianBlur(radius=max(14, int(min(rect.width, rect.height) * 0.045)))))
+        base.paste(shadow, (x + 8, y + 12), shadow)
         base.paste(rotated, (x, y), rotated)
         return base.convert("RGB")
 
@@ -443,21 +450,20 @@ def render_preview_page(
 ) -> Path:
     output = Path(output_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    renderer = ProjectRenderer(config)
+    target_page = next(
+        (
+            page
+            for page in build_scene_pages(config)
+            if page.scene_index == scene_index and page.page_index == page_index
+        ),
+        None,
+    )
+    if target_page is None:
+        raise ValueError(f"Preview page does not exist: scene {scene_index + 1}, page {page_index + 1}")
+    renderer = PageRenderer(target_page, config.video)
     try:
-        target = next(
-            (
-                rendered_page
-                for rendered_page in renderer.rendered_pages
-                if rendered_page.renderer.page.scene_index == scene_index
-                and rendered_page.renderer.page.page_index == page_index
-            ),
-            None,
-        )
-        if target is None:
-            raise ValueError(f"Preview page does not exist: scene {scene_index + 1}, page {page_index + 1}")
-        local_t = clamp01(progress) * max(0.0, target.duration - 0.001)
-        frame = target.renderer.make_frame(local_t)
+        local_t = clamp01(progress) * max(0.0, target_page.duration - 0.001)
+        frame = renderer.make_frame(local_t)
         Image.fromarray(frame).save(output)
     finally:
         renderer.close()

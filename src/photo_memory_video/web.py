@@ -10,13 +10,20 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import yaml
 from PIL import Image, ImageOps
 
-from .config_loader import ConfigError, IMAGE_EXTENSIONS, ProjectConfig, load_config, load_config_data
+from .config_loader import (
+    ConfigError,
+    IMAGE_EXTENSIONS,
+    PhotoTransform,
+    ProjectConfig,
+    load_config,
+    load_config_data,
+)
 from .file_dialogs import open_directory_dialog, open_file_dialog
 from .layout import photo_wall_layout
 from .render import render_preview_frame, render_preview_page, render_video
@@ -189,23 +196,20 @@ class WebWorkspace:
         if target_page.layout != "photo_wall":
             raise WebError(HTTPStatus.BAD_REQUEST, "Auto transforms are only available for photo_wall layout.")
 
-        elements = self._photo_wall_elements(config, pages, target_page, use_transforms=False)
+        elements = self._photo_wall_elements(config, pages, target_page, transform_mode="size")
         return {
             "sceneIndex": scene_index,
             "pageIndex": page_index,
             "transforms": [
                 {
                     "photoIndex": element["photoIndex"],
-                    "transform": {
-                        "x": element["x"],
-                        "y": element["y"],
-                        "width": element["width"],
-                        "rotation": element["rotation"],
-                        "fit": element["fit"],
-                        "z_index": element["z_index"],
-                    },
+                    "transform": self._auto_transform_payload(
+                        target_page.photos[index].transform,
+                        target_page.wall.card_width,
+                        element,
+                    ),
                 }
-                for element in elements
+                for index, element in enumerate(elements)
             ],
         }
 
@@ -233,8 +237,13 @@ class WebWorkspace:
             "rotation": target_page.wall.rotation,
             "overlap": target_page.wall.overlap,
             "style": target_page.wall.style,
+            "card_width": target_page.wall.card_width,
+            "spread": target_page.wall.spread,
+            "caption_safe": target_page.wall.caption_safe,
+            "randomness": target_page.wall.randomness,
+            "random_seed": target_page.wall.random_seed,
         }
-        payload["photos"] = self._photo_wall_elements(config, pages, target_page, use_transforms=True)
+        payload["photos"] = self._photo_wall_elements(config, pages, target_page, transform_mode="current")
         return payload
 
     def _page_from_state(
@@ -263,21 +272,34 @@ class WebWorkspace:
         config: ProjectConfig,
         pages: tuple[ScenePage, ...],
         page: ScenePage,
-        use_transforms: bool,
+        transform_mode: Literal["current", "size", "none"],
     ) -> list[dict[str, Any]]:
         canvas_w, canvas_h = config.video.resolution
         photo_sizes = []
         for photo in page.photos:
             with Image.open(photo.path) as image:
                 photo_sizes.append(ImageOps.exif_transpose(image).size)
+        if transform_mode == "current":
+            transforms = [photo.transform for photo in page.photos]
+        elif transform_mode == "size":
+            transforms = [self._size_transform(photo.transform) for photo in page.photos]
+        elif transform_mode == "none":
+            transforms = [None] * len(page.photos)
+        else:
+            raise ValueError(f"Unsupported photo wall transform mode: {transform_mode}")
         slots = photo_wall_layout(
             len(page.photos),
             config.video.resolution,
             photo_sizes,
-            transforms=[photo.transform for photo in page.photos] if use_transforms else [None] * len(page.photos),
+            transforms=transforms,
             rotation_limit=page.wall.rotation,
             overlap=page.wall.overlap,
             style=page.wall.style,
+            card_width=page.wall.card_width,
+            spread=page.wall.spread,
+            caption_safe=page.wall.caption_safe,
+            randomness=page.wall.randomness,
+            random_seed=page.wall.random_seed,
         )
         photo_offset = sum(
             len(candidate.photos)
@@ -304,6 +326,33 @@ class WebWorkspace:
                 }
             )
         return elements
+
+    @staticmethod
+    def _size_transform(transform: PhotoTransform | None) -> PhotoTransform | None:
+        if transform is None:
+            return None
+        if transform.width is None and transform.height is None and transform.fit is None:
+            return None
+        return PhotoTransform(width=transform.width, height=transform.height, fit=transform.fit)
+
+    @staticmethod
+    def _auto_transform_payload(
+        existing: PhotoTransform | None,
+        card_width: float | None,
+        element: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        width = existing.width if existing and existing.width is not None else card_width
+        payload = {
+            "x": element["x"],
+            "y": element["y"],
+            "width": width if width is not None else element["width"],
+            "rotation": element["rotation"],
+            "fit": existing.fit if existing and existing.fit is not None else element["fit"],
+            "z_index": element["z_index"],
+        }
+        if existing and existing.height is not None:
+            payload["height"] = existing.height
+        return payload
 
     def _run_render_job(self, job: RenderJob, config: ProjectConfig, output: Path) -> None:
         try:

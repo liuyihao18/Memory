@@ -165,6 +165,11 @@ scenes:
       max_per_page: 6
       rotation: 8
       overlap: 0.16
+      card_width: 0.32
+      spread: 1.1
+      caption_safe: true
+      randomness: 0.6
+      random_seed: 202405
       style: print
     duration: 6
     photos:
@@ -195,8 +200,14 @@ scenes:
 - `wall.max_per_page` 控制照片墙每页最多照片数，最大为 9
 - `wall.rotation` 控制自动照片墙旋转强度
 - `wall.overlap` 控制自动照片墙错落重叠感
+- `wall.card_width` 控制照片墙默认卡片宽度，单位是画布宽度比例；留空则使用自动宽度
+- `wall.spread` 控制照片墙分散程度，默认 `1.0`
+- `wall.caption_safe` 默认 `true`，自动重排时尽量减少其他卡片遮挡照片 caption/time
+- `wall.randomness` 控制自动重排的随机偏移强度，默认 `0`
+- `wall.random_seed` 控制随机排布结果；同一种子会稳定复现，Web UI 的“随机重排”会自动换一个新种子
 - `wall.style` 支持 `print` 和 `clean`
 - 照片墙卡片内部照片保持静态取景，整体页面会做统一的轻微缩放
+- Web UI 的“按当前宽度重排”会保留已有 `transform.width`、`transform.height` 和 `transform.fit`，只重新计算位置、旋转和层级；“随机重排”会保留当前宽度并更新随机种子
 - `transform.x`、`transform.y` 是照片卡片中心点的归一化坐标
 - `transform.width` 是卡片宽度占画布宽度的比例
 - `transform.rotation` 范围是 `-45` 到 `45`

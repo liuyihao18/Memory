@@ -11,6 +11,7 @@ const GRAPHIC_MIN_WIDTH = 0.08;
 const GRAPHIC_MAX_WIDTH = 0.95;
 const GRAPHIC_MIN_ROTATION = -45;
 const GRAPHIC_MAX_ROTATION = 45;
+const DEFAULT_RANDOMNESS = 0.7;
 let graphicEditor = {
   page: null,
   elements: [],
@@ -303,8 +304,23 @@ function renderWallSettings(scene) {
       render();
       schedulePreview();
     }, 1, 9)),
+    field("默认宽度", optionalNumberInput(scene.wall.card_width, 0.01, (value) => (scene.wall.card_width = value), GRAPHIC_MIN_WIDTH, GRAPHIC_MAX_WIDTH, true)),
+    field("分散程度", numberInput(scene.wall.spread ?? 1, 0.05, (value) => (scene.wall.spread = value), 0.6, 1.8, true)),
+    field("随机性", numberInput(scene.wall.randomness ?? 0, 0.05, (value) => (scene.wall.randomness = value), 0, 2, true)),
+    field(
+      "随机种子",
+      optionalNumberInput(
+        scene.wall.random_seed,
+        1,
+        (value) => (scene.wall.random_seed = value === null ? null : Math.max(0, Math.round(value))),
+        0,
+        null,
+        true
+      )
+    ),
     field("旋转强度", numberInput(scene.wall.rotation ?? 6, 0.5, (value) => (scene.wall.rotation = value), 0, 20, true)),
     field("错落重叠", numberInput(scene.wall.overlap ?? 0.12, 0.01, (value) => (scene.wall.overlap = value), 0, 0.45, true)),
+    field("保护卡片标题", checkboxInput(scene.wall.caption_safe !== false, (value) => (scene.wall.caption_safe = value), true)),
     field(
       "卡片样式",
       selectInput(scene.wall.style || "print", [["print", "拍立得"], ["clean", "干净"]], (value) => (scene.wall.style = value), true)
@@ -314,13 +330,17 @@ function renderWallSettings(scene) {
   actions.className = "wall-actions";
   const applyButton = document.createElement("button");
   applyButton.type = "button";
-  applyButton.textContent = "写入当前页自动参数";
+  applyButton.textContent = "按当前宽度重排";
   applyButton.onclick = applyAutoTransforms;
+  const randomButton = document.createElement("button");
+  randomButton.type = "button";
+  randomButton.textContent = "随机重排";
+  randomButton.onclick = randomizeAutoTransforms;
   const clearButton = document.createElement("button");
   clearButton.type = "button";
   clearButton.textContent = "清空当前页参数";
   clearButton.onclick = clearCurrentPageTransforms;
-  actions.append(applyButton, clearButton);
+  actions.append(applyButton, randomButton, clearButton);
   wrapper.append(actions);
   return wrapper;
 }
@@ -398,6 +418,18 @@ function optionalNumberInput(value, step, onChange, min = null, max = null, live
   input.addEventListener("input", () => {
     const text = input.value.trim();
     onChange(text === "" ? null : Number(text));
+    if (livePreview) schedulePreview();
+  });
+  return input;
+}
+
+function checkboxInput(value, onChange, livePreview = false) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.className = "checkbox-input";
+  input.checked = Boolean(value);
+  input.addEventListener("change", () => {
+    onChange(input.checked);
     if (livePreview) schedulePreview();
   });
   return input;
@@ -584,14 +616,14 @@ async function preview() {
   await refreshPreview({ lockControls: true });
 }
 
-async function refreshPreview({ lockControls = false } = {}) {
+async function refreshPreview({ lockControls = false, force = false } = {}) {
   if (previewInFlight) {
     previewPending = true;
     return;
   }
-  if (busy && !lockControls) return;
+  if (busy && !lockControls && !force) return;
   if (lockControls) {
-    if (busy) return;
+    if (busy && !force) return;
     setBusy(true);
   }
   previewInFlight = true;
@@ -635,7 +667,7 @@ async function applyAutoTransforms() {
   readVideoForm();
   clampSelectedPage();
   const pageIndex = currentPageIndex();
-  await withBusy("写入自动参数", async () => {
+  await withBusy("按当前宽度重排", async () => {
     const data = await api("/api/layout/auto-transform", { state, sceneIndex: selectedScene, pageIndex });
     const photos = state.scenes[selectedScene].photos;
     for (const item of data.layout.transforms) {
@@ -644,9 +676,21 @@ async function applyAutoTransforms() {
       }
     }
     render();
-    await preview();
-    setStatus("已写入当前页自动参数");
+    await refreshPreview({ force: true });
+    setStatus("已按当前宽度重排");
   });
+}
+
+async function randomizeAutoTransforms() {
+  const scene = state.scenes[selectedScene];
+  if (!scene) return;
+  ensureSceneDefaults(scene);
+  if (!Number(scene.wall.randomness)) {
+    scene.wall.randomness = DEFAULT_RANDOMNESS;
+  }
+  scene.wall.random_seed = newRandomSeed();
+  render();
+  await applyAutoTransforms();
 }
 
 async function clearCurrentPageTransforms() {
@@ -1041,7 +1085,17 @@ function ensureSceneDefaults(scene) {
 }
 
 function defaultWall() {
-  return { max_per_page: 6, rotation: 6, overlap: 0.12, style: "print" };
+  return {
+    max_per_page: 6,
+    rotation: 6,
+    overlap: 0.12,
+    style: "print",
+    card_width: null,
+    spread: 1,
+    caption_safe: true,
+    randomness: 0,
+    random_seed: null,
+  };
 }
 
 function setTransform(photo, key, value) {
@@ -1063,6 +1117,10 @@ function clampNumber(value, min, max) {
 function roundNumber(value, digits) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
+}
+
+function newRandomSeed() {
+  return Math.floor(Math.random() * 2147483647);
 }
 
 function sleep(ms) {

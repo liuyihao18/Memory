@@ -32,6 +32,11 @@ def project_to_editor_state(config: ProjectConfig, output_path: Path | None = No
                     "rotation": scene.wall.rotation,
                     "overlap": scene.wall.overlap,
                     "style": scene.wall.style,
+                    "card_width": scene.wall.card_width,
+                    "spread": scene.wall.spread,
+                    "caption_safe": scene.wall.caption_safe,
+                    "randomness": scene.wall.randomness,
+                    "random_seed": scene.wall.random_seed,
                 },
                 "photos": [
                     compact_mapping({
@@ -122,6 +127,11 @@ def wall_to_config(raw_wall: Any, scene_index: int) -> dict[str, Any] | None:
             "rotation": parse_float(raw_wall.get("rotation", 6), f"scenes[{scene_index}].wall.rotation"),
             "overlap": parse_float(raw_wall.get("overlap", 0.12), f"scenes[{scene_index}].wall.overlap"),
             "style": optional_text(raw_wall.get("style")) or "print",
+            "card_width": optional_float(raw_wall.get("card_width"), f"scenes[{scene_index}].wall.card_width"),
+            "spread": parse_float(raw_wall.get("spread", 1), f"scenes[{scene_index}].wall.spread"),
+            "caption_safe": optional_bool(raw_wall.get("caption_safe"), f"scenes[{scene_index}].wall.caption_safe", default=True),
+            "randomness": parse_float(raw_wall.get("randomness", 0), f"scenes[{scene_index}].wall.randomness"),
+            "random_seed": optional_int(raw_wall.get("random_seed"), f"scenes[{scene_index}].wall.random_seed"),
         }
     )
     return wall or None

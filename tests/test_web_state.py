@@ -112,6 +112,11 @@ scenes:
       max_per_page: 6
       rotation: 7
       overlap: 0.2
+      card_width: 0.31
+      spread: 1.25
+      caption_safe: false
+      randomness: 0.6
+      random_seed: 5678
     duration: 3
     photos:
       - path: "photos/001.jpg"
@@ -128,6 +133,11 @@ scenes:
 
     assert data["scenes"][0]["layout"] == "photo_wall"
     assert data["scenes"][0]["wall"]["max_per_page"] == 6
+    assert data["scenes"][0]["wall"]["card_width"] == 0.31
+    assert data["scenes"][0]["wall"]["spread"] == 1.25
+    assert data["scenes"][0]["wall"]["caption_safe"] is False
+    assert data["scenes"][0]["wall"]["randomness"] == 0.6
+    assert data["scenes"][0]["wall"]["random_seed"] == 5678
     assert data["scenes"][0]["photos"][0]["transform"]["width"] == 0.32
     assert data["scenes"][0]["photos"][0]["transform"]["rotation"] == 3
 
@@ -148,9 +158,18 @@ scenes:
     wall:
       max_per_page: 6
       rotation: 7
+      card_width: 0.28
     duration: 3
     photos:
       - path: "photos/001.jpg"
+        transform:
+          x: 0.12
+          y: 0.12
+          width: 0.42
+          height: 0.3
+          rotation: 17
+          fit: cover
+          z_index: 9
       - path: "photos/002.jpg"
       - path: "photos/003.jpg"
 """,
@@ -162,8 +181,15 @@ scenes:
     result = workspace.auto_photo_wall_transforms(state, scene_index=0, page_index=0)
 
     assert [item["photoIndex"] for item in result["transforms"]] == [0, 1, 2]
+    assert result["transforms"][0]["transform"]["width"] == 0.42
+    assert result["transforms"][0]["transform"]["height"] == 0.3
+    assert result["transforms"][0]["transform"]["fit"] == "cover"
+    assert result["transforms"][1]["transform"]["width"] == 0.28
     assert all(0 < item["transform"]["width"] < 1 for item in result["transforms"])
-    assert all(item["transform"]["fit"] == "contain" for item in result["transforms"])
+    assert result["transforms"][1]["transform"]["fit"] == "contain"
+    assert result["transforms"][0]["transform"]["x"] != 0.12
+    assert result["transforms"][0]["transform"]["rotation"] != 17
+    assert result["transforms"][0]["transform"]["z_index"] == 0
 
 
 def test_web_workspace_page_elements_return_auto_photo_wall_geometry(tmp_path: Path) -> None:
@@ -194,6 +220,10 @@ scenes:
 
     assert result["editable"] is True
     assert result["canvas"] == {"width": 640, "height": 360}
+    assert result["wall"]["spread"] == 1.0
+    assert result["wall"]["caption_safe"] is True
+    assert result["wall"]["randomness"] == 0.0
+    assert result["wall"]["random_seed"] is None
     assert [item["photoIndex"] for item in result["photos"]] == [0, 1]
     assert result["photos"][0]["caption"] == "first"
     assert result["photos"][1]["time"] == "2020"

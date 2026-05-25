@@ -47,6 +47,11 @@ class WallLayoutConfig:
     rotation: float = 6.0
     overlap: float = 0.12
     style: str = "print"
+    card_width: float | None = None
+    spread: float = 1.0
+    caption_safe: bool = True
+    randomness: float = 0.0
+    random_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -239,7 +244,28 @@ def _parse_wall(value: Any, scene_index: int) -> WallLayoutConfig:
     style = (_optional_str(value.get("style")) or "print").lower()
     if style not in {"print", "clean"}:
         raise ConfigError(f"scenes[{scene_index}].wall.style must be 'print' or 'clean'.")
-    return WallLayoutConfig(max_per_page=max_per_page, rotation=rotation, overlap=overlap, style=style)
+    card_width = _parse_optional_range(value.get("card_width"), f"scenes[{scene_index}].wall.card_width", 0.08, 0.95)
+    spread = _parse_non_negative_float(value.get("spread", 1.0), f"scenes[{scene_index}].wall.spread")
+    if spread < 0.6 or spread > 1.8:
+        raise ConfigError(f"scenes[{scene_index}].wall.spread must be between 0.6 and 1.8.")
+    caption_safe = _parse_bool(value.get("caption_safe", True), f"scenes[{scene_index}].wall.caption_safe")
+    randomness = _parse_non_negative_float(value.get("randomness", 0.0), f"scenes[{scene_index}].wall.randomness")
+    if randomness > 2.0:
+        raise ConfigError(f"scenes[{scene_index}].wall.randomness must be <= 2.0.")
+    random_seed = _parse_optional_int(value.get("random_seed"), f"scenes[{scene_index}].wall.random_seed")
+    if random_seed is not None and random_seed < 0:
+        raise ConfigError(f"scenes[{scene_index}].wall.random_seed must be >= 0.")
+    return WallLayoutConfig(
+        max_per_page=max_per_page,
+        rotation=rotation,
+        overlap=overlap,
+        style=style,
+        card_width=card_width,
+        spread=spread,
+        caption_safe=caption_safe,
+        randomness=randomness,
+        random_seed=random_seed,
+    )
 
 
 def _parse_transform(value: Any, scene_index: int, photo_index: int) -> PhotoTransform | None:
