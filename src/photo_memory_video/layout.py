@@ -6,6 +6,7 @@ from typing import Any, Sequence, TypeVar
 
 
 T = TypeVar("T")
+PHOTO_WALL_REFERENCE_WIDTH = 1920
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,40 @@ def photo_wall_layout(
     randomness: float = 0.0,
     random_seed: int | None = None,
 ) -> list[LayoutSlot]:
+    reference_size = photo_wall_reference_size(canvas_size)
+    reference_slots = _photo_wall_layout_pixels(
+        count,
+        reference_size,
+        photo_sizes,
+        transforms,
+        rotation_limit,
+        overlap,
+        style,
+        card_width,
+        spread,
+        caption_safe,
+        randomness,
+        random_seed,
+    )
+    if reference_size == canvas_size:
+        return reference_slots
+    return [_scale_slot(slot, reference_size, canvas_size) for slot in reference_slots]
+
+
+def _photo_wall_layout_pixels(
+    count: int,
+    canvas_size: tuple[int, int],
+    photo_sizes: Sequence[tuple[int, int]] | None = None,
+    transforms: Sequence[Any | None] | None = None,
+    rotation_limit: float = 6.0,
+    overlap: float = 0.12,
+    style: str = "print",
+    card_width: float | None = None,
+    spread: float = 1.0,
+    caption_safe: bool = True,
+    randomness: float = 0.0,
+    random_seed: int | None = None,
+) -> list[LayoutSlot]:
     if count < 1:
         raise ValueError("count must be positive.")
 
@@ -188,6 +223,28 @@ def photo_wall_layout(
     if caption_safe:
         return _protect_caption_areas(slots, auto_positions, width, height, style)
     return slots
+
+
+def photo_wall_reference_size(canvas_size: tuple[int, int]) -> tuple[int, int]:
+    width, height = canvas_size
+    if width <= 0 or height <= 0:
+        return canvas_size
+    reference_width = PHOTO_WALL_REFERENCE_WIDTH
+    reference_height = max(1, round(reference_width * height / width))
+    return reference_width, reference_height
+
+
+def _scale_slot(slot: LayoutSlot, source_size: tuple[int, int], target_size: tuple[int, int]) -> LayoutSlot:
+    source_w, source_h = source_size
+    target_w, target_h = target_size
+    rect = slot.rect
+    scaled = Rect(
+        round(rect.x * target_w / source_w),
+        round(rect.y * target_h / source_h),
+        max(1, round(rect.width * target_w / source_w)),
+        max(1, round(rect.height * target_h / source_h)),
+    )
+    return LayoutSlot(rect=scaled, fit=slot.fit, rotation=slot.rotation, z_index=slot.z_index, frame=slot.frame)
 
 
 def _wall_presets(count: int) -> list[tuple[float, float, float, float]]:

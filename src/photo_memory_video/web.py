@@ -25,7 +25,8 @@ from .config_loader import (
     load_config_data,
 )
 from .file_dialogs import open_directory_dialog, open_file_dialog
-from .layout import photo_wall_layout
+from .layout import LayoutSlot, photo_wall_layout, photo_wall_reference_size
+from .photo_card import photo_card_metrics, photo_card_metrics_payload
 from .render import render_preview_frame, render_preview_page, render_video
 from .timeline import ScenePage, build_scene_pages
 from .web_state import (
@@ -287,19 +288,17 @@ class WebWorkspace:
             transforms = [None] * len(page.photos)
         else:
             raise ValueError(f"Unsupported photo wall transform mode: {transform_mode}")
-        slots = photo_wall_layout(
-            len(page.photos),
+        slots = self._photo_wall_slots(
+            page,
             config.video.resolution,
             photo_sizes,
-            transforms=transforms,
-            rotation_limit=page.wall.rotation,
-            overlap=page.wall.overlap,
-            style=page.wall.style,
-            card_width=page.wall.card_width,
-            spread=page.wall.spread,
-            caption_safe=page.wall.caption_safe,
-            randomness=page.wall.randomness,
-            random_seed=page.wall.random_seed,
+            transforms,
+        )
+        metric_slots = self._photo_wall_slots(
+            page,
+            photo_wall_reference_size(config.video.resolution),
+            photo_sizes,
+            transforms,
         )
         photo_offset = sum(
             len(candidate.photos)
@@ -307,8 +306,9 @@ class WebWorkspace:
             if candidate.scene_index == page.scene_index and candidate.page_index < page.page_index
         )
         elements: list[dict[str, Any]] = []
-        for index, (photo, slot) in enumerate(zip(page.photos, slots)):
+        for index, (photo, slot, metric_slot) in enumerate(zip(page.photos, slots, metric_slots)):
             photo_payload = photo_state(photo.path, config.base_dir)
+            metrics = photo_card_metrics(metric_slot.rect, metric_slot.frame, bool(photo.caption or photo.time))
             elements.append(
                 {
                     **photo_payload,
@@ -323,9 +323,32 @@ class WebWorkspace:
                     "height": round(slot.rect.height / canvas_h, 4),
                     "rotation": round(slot.rotation, 2),
                     "z_index": slot.z_index,
+                    "card": photo_card_metrics_payload(metrics, metric_slot.rect),
                 }
             )
         return elements
+
+    @staticmethod
+    def _photo_wall_slots(
+        page: ScenePage,
+        canvas_size: tuple[int, int],
+        photo_sizes: list[tuple[int, int]],
+        transforms: list[PhotoTransform | None],
+    ) -> list[LayoutSlot]:
+        return photo_wall_layout(
+            len(page.photos),
+            canvas_size,
+            photo_sizes,
+            transforms=transforms,
+            rotation_limit=page.wall.rotation,
+            overlap=page.wall.overlap,
+            style=page.wall.style,
+            card_width=page.wall.card_width,
+            spread=page.wall.spread,
+            caption_safe=page.wall.caption_safe,
+            randomness=page.wall.randomness,
+            random_seed=page.wall.random_seed,
+        )
 
     @staticmethod
     def _size_transform(transform: PhotoTransform | None) -> PhotoTransform | None:

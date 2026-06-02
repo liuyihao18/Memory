@@ -782,6 +782,7 @@ function renderGraphicCard(item, renderOrder = 0) {
   card.style.height = `${item.height * 100}%`;
   card.style.zIndex = String(100 + renderOrder);
   card.style.transform = `translate(-50%, -50%) rotate(${-item.rotation}deg)`;
+  applyGraphicCardLayout(card, item.card);
   card.addEventListener("pointerdown", (event) => startGraphicMove(event, item.photoIndex));
   card.addEventListener("click", () => selectGraphicElement(item.photoIndex));
 
@@ -796,7 +797,9 @@ function renderGraphicCard(item, renderOrder = 0) {
 
   const caption = document.createElement("div");
   caption.className = "graphic-caption";
-  caption.textContent = [item.time, item.caption].filter(Boolean).join(" · ");
+  const captionText = [item.time, item.caption].filter(Boolean).join(" · ");
+  caption.textContent = captionText;
+  caption.hidden = !captionText || !item.card?.label;
 
   card.append(photoWrap, caption);
 
@@ -830,6 +833,7 @@ function normalizeGraphicElement(item, canvas = { width: 16, height: 9 }) {
     time: item.time || "",
     fit: item.fit || "contain",
     frame: item.frame || "print",
+    card: normalizeGraphicCardLayout(item.card, item.frame || "print"),
     x: clampNumber(Number.isFinite(rawX) ? rawX : 0.5, 0, 1),
     y: clampNumber(Number.isFinite(rawY) ? rawY : 0.5, 0, 1),
     width,
@@ -838,6 +842,57 @@ function normalizeGraphicElement(item, canvas = { width: 16, height: 9 }) {
     rotation: clampNumber(Number.isFinite(rawRotation) ? rawRotation : 0, GRAPHIC_MIN_ROTATION, GRAPHIC_MAX_ROTATION),
     z_index: Number.isFinite(Number(item.z_index)) ? Number(item.z_index) : 0,
   };
+}
+
+function applyGraphicCardLayout(card, layout) {
+  setGraphicRectVars(card, "photo", layout.photo);
+  if (layout.label) {
+    setGraphicRectVars(card, "label", layout.label);
+  }
+  card.style.setProperty("--card-label-font-ratio", String(layout.labelFontSize || 0.065));
+}
+
+function setGraphicRectVars(card, name, rect) {
+  card.style.setProperty(`--card-${name}-x`, `${rect.x * 100}%`);
+  card.style.setProperty(`--card-${name}-y`, `${rect.y * 100}%`);
+  card.style.setProperty(`--card-${name}-w`, `${rect.width * 100}%`);
+  card.style.setProperty(`--card-${name}-h`, `${rect.height * 100}%`);
+}
+
+function normalizeGraphicCardLayout(layout, frame = "print") {
+  const fallback =
+    frame === "clean"
+      ? {
+          photo: { x: 0.026, y: 0.026, width: 0.948, height: 0.948 },
+          label: { x: 0.025, y: 0.805, width: 0.95, height: 0.16 },
+          labelFontSize: 0.055,
+        }
+      : {
+          photo: { x: 0.038, y: 0.038, width: 0.924, height: 0.809 },
+          label: { x: 0.038, y: 0.847, width: 0.924, height: 0.115 },
+          labelFontSize: 0.062,
+        };
+  const raw = layout && typeof layout === "object" ? layout : fallback;
+  return {
+    photo: normalizeGraphicRect(raw.photo, fallback.photo),
+    label: raw.label ? normalizeGraphicRect(raw.label, fallback.label) : null,
+    labelFontSize: normalizeGraphicUnit(raw.labelFontSize, fallback.labelFontSize, 0.02, 0.16),
+  };
+}
+
+function normalizeGraphicRect(rect, fallback) {
+  const raw = rect && typeof rect === "object" ? rect : fallback;
+  return {
+    x: normalizeGraphicUnit(raw.x, fallback.x, 0, 1),
+    y: normalizeGraphicUnit(raw.y, fallback.y, 0, 1),
+    width: normalizeGraphicUnit(raw.width, fallback.width, 0.01, 1),
+    height: normalizeGraphicUnit(raw.height, fallback.height, 0.01, 1),
+  };
+}
+
+function normalizeGraphicUnit(value, fallback, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) ? clampNumber(number, min, max) : fallback;
 }
 
 function selectGraphicElement(photoIndex) {

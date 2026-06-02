@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageStat
 
 from photo_memory_video.config_loader import PhotoConfig, load_config
-from photo_memory_video.layout import Rect
+from photo_memory_video.layout import LayoutSlot, Rect, photo_wall_layout
+from photo_memory_video.photo_card import photo_card_metrics
 from photo_memory_video.render import PHOTO_CARD_SUPERSAMPLE, ProjectRenderer, _card_label_font_size, render_preview_page
 from photo_memory_video.text_renderer import TextRenderer
 
@@ -131,6 +132,82 @@ scenes:
 
     assert output.exists()
     assert Image.open(output).size == (320, 180)
+
+
+def test_photo_wall_renderer_uses_reference_canvas_for_output_sizes(tmp_path: Path) -> None:
+    for index in range(3):
+        _image(tmp_path / "photos" / f"{index + 1:03}.jpg", (160 + index * 20, 110), (90 + index * 20, 100, 120))
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [1280, 720]
+  scene_zoom: false
+  fade_duration: 0
+scenes:
+  - layout: photo_wall
+    duration: 2
+    photos:
+      - path: "photos/001.jpg"
+        caption: "one"
+      - path: "photos/002.jpg"
+        caption: "two"
+      - path: "photos/003.jpg"
+        caption: "three"
+""",
+        encoding="utf-8",
+    )
+    low_renderer = ProjectRenderer(load_config(config_path))
+    try:
+        low_frame = Image.fromarray(low_renderer.make_frame(0.5))
+        assert low_renderer.rendered_pages[0].renderer.canvas_size == (1920, 1080)
+    finally:
+        low_renderer.close()
+
+    config_path.write_text(config_path.read_text(encoding="utf-8").replace("[1280, 720]", "[1920, 1080]"), encoding="utf-8")
+    high_renderer = ProjectRenderer(load_config(config_path))
+    try:
+        high_frame = Image.fromarray(high_renderer.make_frame(0.5))
+    finally:
+        high_renderer.close()
+
+    assert low_frame.size == (1280, 720)
+    assert high_frame.size == (1920, 1080)
+    upscaled_low = low_frame.resize(high_frame.size, Image.Resampling.LANCZOS)
+    diff = ImageChops.difference(upscaled_low, high_frame)
+    assert diff.getbbox() is not None
+    assert sum(ImageStat.Stat(diff).mean) / 3 < 4
+
+
+def test_clean_photo_wall_card_draws_caption_overlay(tmp_path: Path) -> None:
+    _image(tmp_path / "photos" / "001.jpg", (160, 100), (120, 90, 70))
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [320, 180]
+  fade_duration: 0
+scenes:
+  - layout: photo_wall
+    wall:
+      style: clean
+    duration: 2
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+    renderer = ProjectRenderer(load_config(config_path))
+    try:
+        page_renderer = renderer.rendered_pages[0].renderer
+        image = Image.new("RGB", (160, 100), (120, 90, 70))
+        slot = LayoutSlot(rect=Rect(0, 0, 220, 160), fit="cover", frame="clean")
+        without_label = page_renderer._render_photo_card(image, slot, PhotoConfig(path=tmp_path / "unused.jpg"))
+        with_label = page_renderer._render_photo_card(image, slot, PhotoConfig(path=tmp_path / "unused.jpg", caption="我们会赢的"))
+    finally:
+        renderer.close()
+
+    assert ImageChops.difference(without_label, with_label).getbbox() is not None
 
 
 def test_contain_fit_keeps_background_when_zoom_crops_one_axis(tmp_path: Path) -> None:
@@ -275,6 +352,35 @@ scenes:
 
 
 def test_card_label_font_size_scales_with_supersampling() -> None:
-    assert _card_label_font_size(60, 1) == 25
-    assert _card_label_font_size(60 * PHOTO_CARD_SUPERSAMPLE, PHOTO_CARD_SUPERSAMPLE) == 50
-    assert _card_label_font_size(200, PHOTO_CARD_SUPERSAMPLE) == 56
+    assert _card_label_font_size(60, 1) == 32
+    assert _card_label_font_size(60 * PHOTO_CARD_SUPERSAMPLE, PHOTO_CARD_SUPERSAMPLE) == 64
+    assert _card_label_font_size(200, PHOTO_CARD_SUPERSAMPLE) == 108
+
+
+def test_card_label_font_size_is_capped_by_card_width() -> None:
+    small = photo_card_metrics(Rect(0, 0, 180, 220), "print", has_label=True)
+    landscape = photo_card_metrics(Rect(0, 0, 420, 320), "print", has_label=True)
+    portrait = photo_card_metrics(Rect(0, 0, 420, 700), "print", has_label=True)
+
+    assert small.label_font_size == 20
+    assert landscape.label_font_size == 20
+    assert portrait.label_font_size == 31
+    assert portrait.label_font_size / landscape.label_font_size < 1.6
+
+
+def test_card_label_font_size_keeps_resolution_ratio() -> None:
+    ratios = []
+    for canvas in ((1280, 720), (1920, 1080), (3840, 2160)):
+        slot = photo_wall_layout(
+            3,
+            canvas,
+            [(1200, 800)] * 3,
+            transforms=[None] * 3,
+            style="print",
+            caption_safe=False,
+        )[0]
+        metrics = photo_card_metrics(slot.rect, slot.frame, has_label=True)
+        assert metrics.label_rect is not None
+        ratios.append(metrics.label_font_size / slot.rect.height)
+
+    assert max(ratios) - min(ratios) < 0.01

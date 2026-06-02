@@ -10,7 +10,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from .config_loader import PhotoConfig, ProjectConfig, VideoConfig
-from .layout import LayoutSlot, Rect, layout_for_count, photo_wall_layout
+from .layout import LayoutSlot, Rect, layout_for_count, photo_wall_layout, photo_wall_reference_size
+from .photo_card import card_label_font_size, photo_card_metrics
 from .text_renderer import TextRenderer
 from .timeline import ScenePage, build_scene_pages
 from .transitions import blend_frames, clamp01, fade_to_color, smoothstep
@@ -36,7 +37,8 @@ class PageRenderer:
     def __init__(self, page: ScenePage, video: VideoConfig, text_renderer: TextRenderer | None = None) -> None:
         self.page = page
         self.video = video
-        self.canvas_size = video.resolution
+        self.output_size = video.resolution
+        self.canvas_size = photo_wall_reference_size(video.resolution) if page.layout == "photo_wall" else video.resolution
         self.text_renderer = text_renderer or TextRenderer(video.font_path)
         self.photos = page.photos
         self.images = [ImageOps.exif_transpose(Image.open(photo.path)).convert("RGB") for photo in self.photos]
@@ -51,6 +53,8 @@ class PageRenderer:
         photo_layer = self._cached_photo_layer()
         canvas = self._apply_scene_zoom(photo_layer, progress) if self.video.scene_zoom else photo_layer
         canvas = Image.alpha_composite(canvas.convert("RGBA"), self._cached_heading_layer()).convert("RGB")
+        if canvas.size != self.output_size:
+            canvas = canvas.resize(self.output_size, Image.Resampling.LANCZOS)
         return np.asarray(canvas, dtype=np.uint8)
 
     def _cached_photo_layer(self) -> Image.Image:
@@ -272,12 +276,9 @@ class PageRenderer:
             width=max(1, 2 * render_scale),
         )
 
-        pad = max(8, int(min(rect.width, rect.height) * (0.042 if slot.frame == "print" else 0.026)))
         has_label = bool(photo.caption or photo.time)
-        label_h = max(0, int(rect.height * 0.14)) if has_label and slot.frame == "print" else 0
-        photo_w = max(1, rect.width - pad * 2)
-        photo_h = max(1, rect.height - pad * 2 - label_h)
-        photo_rect = Rect(0, 0, photo_w, photo_h)
+        metrics = photo_card_metrics(rect, slot.frame, has_label, render_scale)
+        photo_rect = Rect(0, 0, metrics.photo_rect.width, metrics.photo_rect.height)
         tile = (
             self._contain_fit(image, photo_rect, background_color=(236, 230, 218))
             if slot.fit == "contain"
@@ -285,39 +286,44 @@ class PageRenderer:
         )
         tile = tile.convert("RGBA")
 
-        photo_mask = Image.new("L", (photo_w, photo_h), 0)
+        photo_mask = Image.new("L", (metrics.photo_rect.width, metrics.photo_rect.height), 0)
         ImageDraw.Draw(photo_mask).rounded_rectangle(
-            (0, 0, photo_w, photo_h),
-            radius=max(6, int(min(photo_w, photo_h) * 0.018)),
+            (0, 0, metrics.photo_rect.width, metrics.photo_rect.height),
+            radius=max(6, int(min(metrics.photo_rect.width, metrics.photo_rect.height) * 0.018)),
             fill=255,
         )
-        card.paste(tile, (pad, pad), photo_mask)
+        card.paste(tile, (metrics.photo_rect.x, metrics.photo_rect.y), photo_mask)
 
-        if label_h > 0:
-            self._draw_card_label(card, photo, pad, rect.height - pad - label_h, photo_w, label_h, render_scale)
+        if metrics.label_rect:
+            self._draw_card_label(card, photo, metrics.label_rect, metrics.label_font_size, slot.frame)
         return card
 
     def _draw_card_label(
         self,
         card: Image.Image,
         photo: PhotoConfig,
-        x: int,
-        y: int,
-        width: int,
-        height: int,
-        render_scale: int = 1,
+        rect: Rect,
+        font_size: int,
+        frame: str,
     ) -> None:
         draw = ImageDraw.Draw(card)
         text = " · ".join(part for part in (photo.time, photo.caption) if part)
         if not text:
             return
-        font_size = _card_label_font_size(height, render_scale)
         font = self.text_renderer.font(font_size, bold=bool(photo.caption))
-        fill = (58, 48, 38, 245)
-        text = self._ellipsize(text, font, width, draw)
+        fill = (58, 48, 38, 245) if frame == "print" else (255, 247, 235, 245)
+        if frame == "clean":
+            radius = max(4, int(min(rect.width, rect.height) * 0.18))
+            draw.rounded_rectangle((rect.x, rect.y, rect.right - 1, rect.bottom - 1), radius=radius, fill=(0, 0, 0, 118))
+            text_x = rect.x + max(6, int(rect.height * 0.25))
+            max_width = max(1, rect.width - (text_x - rect.x) * 2)
+        else:
+            text_x = rect.x
+            max_width = rect.width
+        text = self._ellipsize(text, font, max_width, draw)
         bbox = draw.textbbox((0, 0), text, font=font)
         text_h = bbox[3] - bbox[1]
-        draw.text((x, y + max(0, (height - text_h) // 2 - 1)), text, font=font, fill=fill)
+        draw.text((text_x, rect.y + max(0, (rect.height - text_h) // 2 - 1)), text, font=font, fill=fill)
 
     def _ellipsize(self, text: str, font, max_width: int, draw: ImageDraw.ImageDraw) -> str:
         if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
@@ -333,8 +339,7 @@ class PageRenderer:
 
 
 def _card_label_font_size(height: int, render_scale: int = 1) -> int:
-    scale = max(1, int(render_scale))
-    return max(13 * scale, min(28 * scale, int(height * 0.42)))
+    return card_label_font_size(height, render_scale)
 
 
 class ProjectRenderer:

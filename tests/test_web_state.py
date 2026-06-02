@@ -231,6 +231,10 @@ scenes:
     assert all(0 < item["x"] < 1 and 0 < item["y"] < 1 for item in result["photos"])
     assert all(0 < item["width"] < 1 and 0 < item["height"] < 1 for item in result["photos"])
     assert all(item["fit"] == "contain" for item in result["photos"])
+    card = result["photos"][0]["card"]
+    assert card["label"] is not None
+    assert card["photo"]["height"] < 0.86
+    assert 0.04 < card["labelFontSize"] < 0.09
 
 
 def test_web_workspace_page_elements_apply_existing_transform(tmp_path: Path) -> None:
@@ -269,6 +273,37 @@ scenes:
     assert item["rotation"] == 11
     assert item["fit"] == "cover"
     assert item["z_index"] == 7
+
+
+def test_web_workspace_page_elements_card_metrics_are_resolution_stable(tmp_path: Path) -> None:
+    for index in range(2):
+        photo = tmp_path / "photos" / f"{index + 1:03}.jpg"
+        photo.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (120 + index * 20, 180), (90, 100, 110)).save(photo)
+    config_path = tmp_path / "wall.yaml"
+    config_path.write_text(
+        """
+video:
+  resolution: [1280, 720]
+scenes:
+  - layout: photo_wall
+    duration: 3
+    photos:
+      - path: "photos/001.jpg"
+        caption: "first"
+      - path: "photos/002.jpg"
+        caption: "second"
+""",
+        encoding="utf-8",
+    )
+    workspace = WebWorkspace(config_path, tmp_path / "output.mp4")
+    state = project_to_editor_state(load_config(config_path))
+
+    low = workspace.photo_wall_page_elements(state, scene_index=0, page_index=0)["photos"][0]["card"]
+    state["video"]["resolution"] = [1920, 1080]
+    high = workspace.photo_wall_page_elements(state, scene_index=0, page_index=0)["photos"][0]["card"]
+
+    assert low == high
 
 
 def test_web_workspace_page_elements_reject_non_photo_wall(tmp_path: Path) -> None:

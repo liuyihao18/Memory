@@ -114,8 +114,44 @@ def test_photo_wall_caption_safe_reduces_bottom_caption_overlap() -> None:
         assert slot.rect.bottom <= 720
 
 
+def test_photo_wall_layout_is_stable_across_same_aspect_resolutions() -> None:
+    sizes = [(1600, 1000), (1200, 1600), (1600, 900), (1000, 1400), (1600, 1100)]
+    resolutions = [(1280, 720), (1920, 1080), (3840, 2160)]
+    signatures = [
+        _normalized_signature(photo_wall_layout(5, resolution, sizes, caption_safe=True), resolution)
+        for resolution in resolutions
+    ]
+
+    assert _signatures_close(signatures[0], signatures[1])
+    assert _signatures_close(signatures[1], signatures[2])
+
+
 def _slot_signature(slots) -> list[tuple[int, int, int, int, float]]:
     return [(slot.rect.x, slot.rect.y, slot.rect.width, slot.rect.height, round(slot.rotation, 4)) for slot in slots]
+
+
+def _normalized_signature(slots, canvas_size: tuple[int, int]) -> list[tuple[float, float, float, float, float]]:
+    width, height = canvas_size
+    return [
+        (
+            round((slot.rect.x + slot.rect.width / 2) / width, 4),
+            round((slot.rect.y + slot.rect.height / 2) / height, 4),
+            round(slot.rect.width / width, 4),
+            round(slot.rect.height / height, 4),
+            round(slot.rotation, 4),
+        )
+        for slot in slots
+    ]
+
+
+def _signatures_close(
+    first: list[tuple[float, float, float, float, float]],
+    second: list[tuple[float, float, float, float, float]],
+) -> bool:
+    return all(
+        all(abs(left - right) < 0.001 for left, right in zip(first_item, second_item))
+        for first_item, second_item in zip(first, second)
+    )
 
 
 def _caption_overlap_score(slots) -> int:

@@ -668,9 +668,19 @@ body.modal-open {
 
 .graphic-card {
   position: absolute;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  padding: 10px 10px 12px;
+  display: block;
+  box-sizing: border-box;
+  container-type: size;
+  --card-photo-x: 3.8%;
+  --card-photo-y: 3.8%;
+  --card-photo-w: 92.4%;
+  --card-photo-h: 82%;
+  --card-label-x: 3.8%;
+  --card-label-y: 84%;
+  --card-label-w: 92.4%;
+  --card-label-h: 11.5%;
+  --card-label-font-ratio: 0.065;
+  padding: 0;
   border: 1px solid #ded2bd;
   border-radius: 6px;
   background: #f5eddc;
@@ -685,7 +695,7 @@ body.modal-open {
 .graphic-card-clean {
   padding: 0;
   border-color: rgba(255, 255, 255, 0.18);
-  background: #111;
+  background: rgba(250, 247, 240, 0.95);
 }
 
 .graphic-card.selected {
@@ -698,6 +708,11 @@ body.modal-open {
 }
 
 .graphic-photo-wrap {
+  position: absolute;
+  left: var(--card-photo-x);
+  top: var(--card-photo-y);
+  width: var(--card-photo-w);
+  height: var(--card-photo-h);
   min-height: 0;
   overflow: hidden;
   border-radius: 3px;
@@ -712,28 +727,36 @@ body.modal-open {
 }
 
 .graphic-caption {
-  min-height: 32px;
-  padding-top: 10px;
+  position: absolute;
+  left: var(--card-label-x);
+  top: var(--card-label-y);
+  width: var(--card-label-w);
+  height: var(--card-label-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 0;
+  padding: 0;
   overflow: hidden;
   color: #2b251c;
-  font-size: 16px;
+  font-size: calc(var(--card-label-font-ratio) * 100cqh);
   font-weight: 700;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.graphic-caption[hidden] {
+  display: none;
+}
+
 .graphic-card-clean .graphic-caption {
   min-height: 0;
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
-  padding: 6px 8px;
+  padding: 0 8px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.48);
   color: #fff7eb;
-  font-size: 13px;
+  font-size: calc(var(--card-label-font-ratio) * 100cqh);
 }
 
 .graphic-handle {
