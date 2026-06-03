@@ -69,6 +69,32 @@
             </label>
           </div>
 
+          <section class="audio-settings">
+            <label class="audio-path-field">
+              BGM
+              <div class="path-picker">
+                <input id="audioPath" placeholder="music/bgm.mp3" />
+                <button id="chooseAudioBtn" type="button">选择</button>
+              </div>
+            </label>
+            <label>
+              音量
+              <input id="audioVolume" type="number" min="0" max="2" step="0.05" />
+            </label>
+            <label>
+              淡入
+              <input id="audioFadeIn" type="number" min="0" step="0.1" />
+            </label>
+            <label>
+              淡出
+              <input id="audioFadeOut" type="number" min="0" step="0.1" />
+            </label>
+            <label class="toggle-field">
+              循环
+              <input id="audioLoop" type="checkbox" />
+            </label>
+          </section>
+
           <div id="sceneEditor" class="scene-editor"></div>
         </section>
 

@@ -21,6 +21,14 @@ def open_file_dialog(purpose: str) -> Path | None:
                 defaultextension=".mp4",
                 filetypes=[("MP4 video", "*.mp4"), ("All files", "*.*")],
             )
+        elif purpose == "audio":
+            selected = filedialog.askopenfilename(
+                title="选择背景音乐",
+                filetypes=[
+                    ("Audio files", "*.mp3 *.wav *.m4a *.aac *.flac *.ogg"),
+                    ("All files", "*.*"),
+                ],
+            )
         else:
             selected = filedialog.askopenfilename(
                 title="选择照片",

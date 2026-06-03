@@ -47,6 +47,48 @@ scenes:
     assert data["scenes"][0]["photos"][0]["caption"] == "第一次社团活动"
 
 
+def test_web_state_round_trip_keeps_audio_config(tmp_path: Path) -> None:
+    photo = tmp_path / "photos" / "001.jpg"
+    audio = tmp_path / "music" / "bgm.mp3"
+    photo.parent.mkdir(parents=True)
+    audio.parent.mkdir(parents=True)
+    Image.new("RGB", (120, 80), (90, 100, 110)).save(photo)
+    audio.write_bytes(b"audio")
+    config_path = tmp_path / "audio.yaml"
+    config_path.write_text(
+        """
+video:
+  audio:
+    path: "music/bgm.mp3"
+    volume: 0.4
+    fade_in: 1.2
+    fade_out: 2.4
+    loop: false
+scenes:
+  - duration: 3
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+
+    state = project_to_editor_state(load_config(config_path))
+    state["video"]["audio"]["volume"] = 0.5
+    data = state_to_config_data(state)
+
+    assert state["video"]["audio"]["path"] == "music/bgm.mp3"
+    assert data["video"]["audio"] == {
+        "path": "music/bgm.mp3",
+        "volume": 0.5,
+        "fade_in": 1.2,
+        "fade_out": 2.4,
+        "loop": False,
+    }
+
+    state["video"]["audio"]["path"] = ""
+    assert "audio" not in state_to_config_data(state)["video"]
+
+
 def test_preview_time_skips_initial_fade(tmp_path: Path) -> None:
     photo = tmp_path / "photos" / "001.jpg"
     photo.parent.mkdir(parents=True)

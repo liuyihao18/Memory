@@ -4,12 +4,12 @@ import bisect
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
-from .config_loader import PhotoConfig, ProjectConfig, VideoConfig
+from .config_loader import AudioConfig, PhotoConfig, ProjectConfig, VideoConfig
 from .layout import LayoutSlot, Rect, layout_for_count, photo_wall_layout, photo_wall_reference_size
 from .photo_card import card_label_font_size, photo_card_metrics
 from .text_renderer import TextRenderer
@@ -414,12 +414,18 @@ def render_video(config: ProjectConfig, output_path: str | Path, progress_callba
     renderer = ProjectRenderer(config)
     try:
         clip = _make_video_clip(VideoClip, renderer.make_frame, renderer.duration)
+        final_clip = clip
+        audio_clip = None
         try:
-            clip.write_videofile(
+            audio_clip = _make_audio_clip(config.video.audio, renderer.duration)
+            if audio_clip is not None:
+                final_clip = _with_audio(clip, audio_clip)
+            final_clip.write_videofile(
                 str(output),
                 fps=config.video.fps,
                 codec="libx264",
-                audio=False,
+                audio=audio_clip is not None,
+                audio_codec="aac" if audio_clip is not None else None,
                 preset="medium",
                 threads=4,
                 logger=_make_progress_logger(progress_callback) if progress_callback else "bar",
@@ -427,8 +433,12 @@ def render_video(config: ProjectConfig, output_path: str | Path, progress_callba
             if progress_callback:
                 progress_callback(1.0, "渲染完成")
         finally:
+            if final_clip is not clip and hasattr(final_clip, "close"):
+                final_clip.close()
             if hasattr(clip, "close"):
                 clip.close()
+            if audio_clip is not None and hasattr(audio_clip, "close"):
+                audio_clip.close()
     finally:
         renderer.close()
     return output
@@ -491,6 +501,129 @@ def _make_video_clip(video_clip_type: type, make_frame: FrameFunction, duration:
         return video_clip_type(frame_function=make_frame, duration=duration)
     except TypeError:
         return video_clip_type(make_frame=make_frame, duration=duration)
+
+
+def _make_audio_clip(config: AudioConfig, duration: float):
+    if config.path is None or duration <= 0:
+        return None
+    try:
+        AudioFileClip, audio_fx = _load_moviepy_audio_tools()
+    except ImportError as exc:
+        raise RuntimeError("MoviePy audio support is required to render BGM.") from exc
+
+    audio = AudioFileClip(str(config.path))
+    source_duration = _clip_duration(audio)
+    if config.loop and source_duration is not None and source_duration < duration:
+        audio = _loop_audio(audio, duration, audio_fx)
+    elif source_duration is not None and source_duration > duration:
+        audio = _subclip_audio(audio, 0, duration)
+
+    audio = _limit_audio_duration(audio, duration)
+    audio = _scale_audio_volume(audio, config.volume, audio_fx)
+
+    effective_duration = min(_clip_duration(audio) or duration, duration)
+    fade_in = min(config.fade_in, effective_duration / 2) if effective_duration > 0 else 0
+    fade_out = min(config.fade_out, effective_duration / 2) if effective_duration > 0 else 0
+    audio = _fade_audio(audio, fade_in, fade_out, audio_fx)
+    return audio
+
+
+def _load_moviepy_audio_tools() -> tuple[type, Any]:
+    try:
+        from moviepy import AudioFileClip
+        import moviepy.audio.fx as audio_fx
+
+        return AudioFileClip, audio_fx
+    except ImportError:
+        from moviepy.editor import AudioFileClip
+        import moviepy.audio.fx.all as audio_fx
+
+        return AudioFileClip, audio_fx
+
+
+def _clip_duration(clip: Any) -> float | None:
+    duration = getattr(clip, "duration", None)
+    if duration is None:
+        return None
+    try:
+        return float(duration)
+    except (TypeError, ValueError):
+        return None
+
+
+def _loop_audio(audio: Any, duration: float, audio_fx: Any) -> Any:
+    if hasattr(audio, "with_effects") and hasattr(audio_fx, "AudioLoop"):
+        return audio.with_effects([audio_fx.AudioLoop(duration=duration)])
+    loop_effect = getattr(audio_fx, "audio_loop", None)
+    if loop_effect is not None:
+        return loop_effect(audio, duration=duration)
+    return _limit_audio_duration(audio, duration)
+
+
+def _limit_audio_duration(audio: Any, duration: float) -> Any:
+    current_duration = _clip_duration(audio)
+    if current_duration is not None and current_duration > duration:
+        return _subclip_audio(audio, 0, duration)
+    if current_duration is not None and current_duration <= duration:
+        return audio
+    if hasattr(audio, "with_duration"):
+        return audio.with_duration(duration)
+    if hasattr(audio, "set_duration"):
+        return audio.set_duration(duration)
+    return audio
+
+
+def _subclip_audio(audio: Any, start: float, end: float) -> Any:
+    if hasattr(audio, "subclipped"):
+        return audio.subclipped(start, end)
+    if hasattr(audio, "subclip"):
+        return audio.subclip(start, end)
+    return audio
+
+
+def _scale_audio_volume(audio: Any, volume: float, audio_fx: Any) -> Any:
+    if abs(volume - 1.0) < 1e-9:
+        return audio
+    if hasattr(audio, "with_volume_scaled"):
+        return audio.with_volume_scaled(volume)
+    if hasattr(audio, "volumex"):
+        return audio.volumex(volume)
+    if hasattr(audio, "with_effects") and hasattr(audio_fx, "MultiplyVolume"):
+        return audio.with_effects([audio_fx.MultiplyVolume(volume)])
+    volume_effect = getattr(audio_fx, "volumex", None)
+    if volume_effect is not None and hasattr(audio, "fx"):
+        return audio.fx(volume_effect, volume)
+    return audio
+
+
+def _fade_audio(audio: Any, fade_in: float, fade_out: float, audio_fx: Any) -> Any:
+    if fade_in > 0:
+        if hasattr(audio, "with_effects") and hasattr(audio_fx, "AudioFadeIn"):
+            audio = audio.with_effects([audio_fx.AudioFadeIn(fade_in)])
+        elif hasattr(audio, "audio_fadein"):
+            audio = audio.audio_fadein(fade_in)
+        else:
+            effect = getattr(audio_fx, "audio_fadein", None)
+            if effect is not None and hasattr(audio, "fx"):
+                audio = audio.fx(effect, fade_in)
+    if fade_out > 0:
+        if hasattr(audio, "with_effects") and hasattr(audio_fx, "AudioFadeOut"):
+            audio = audio.with_effects([audio_fx.AudioFadeOut(fade_out)])
+        elif hasattr(audio, "audio_fadeout"):
+            audio = audio.audio_fadeout(fade_out)
+        else:
+            effect = getattr(audio_fx, "audio_fadeout", None)
+            if effect is not None and hasattr(audio, "fx"):
+                audio = audio.fx(effect, fade_out)
+    return audio
+
+
+def _with_audio(video_clip: Any, audio_clip: Any) -> Any:
+    if hasattr(video_clip, "with_audio"):
+        return video_clip.with_audio(audio_clip)
+    if hasattr(video_clip, "set_audio"):
+        return video_clip.set_audio(audio_clip)
+    raise RuntimeError("The installed MoviePy version cannot attach audio to the video clip.")
 
 
 def _make_progress_logger(progress_callback: ProgressCallback | None):

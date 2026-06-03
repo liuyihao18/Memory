@@ -20,6 +20,13 @@ def project_to_editor_state(config: ProjectConfig, output_path: Path | None = No
             "fade_duration": config.video.fade_duration,
             "scene_zoom": config.video.scene_zoom,
             "font": display_path(config.video.font_path, config.base_dir) if config.video.font_path else "",
+            "audio": {
+                "path": display_path(config.video.audio.path, config.base_dir) if config.video.audio.path else "",
+                "volume": config.video.audio.volume,
+                "fade_in": config.video.audio.fade_in,
+                "fade_out": config.video.audio.fade_out,
+                "loop": config.video.audio.loop,
+            },
         },
         "scenes": [
             {
@@ -73,6 +80,7 @@ def state_to_config_data(state: Mapping[str, Any]) -> dict[str, Any]:
                 "fade_duration": parse_float(video.get("fade_duration"), "video.fade_duration"),
                 "scene_zoom": optional_bool(video.get("scene_zoom"), "video.scene_zoom", default=True),
                 "font": optional_text(video.get("font")),
+                "audio": audio_to_config(video.get("audio")),
             }
         ),
         "scenes": [],
@@ -135,6 +143,27 @@ def wall_to_config(raw_wall: Any, scene_index: int) -> dict[str, Any] | None:
         }
     )
     return wall or None
+
+
+def audio_to_config(raw_audio: Any) -> dict[str, Any] | None:
+    if raw_audio is None:
+        return None
+    if not isinstance(raw_audio, Mapping):
+        raise ConfigError("video.audio must be a mapping.")
+    path = optional_text(raw_audio.get("path"))
+    if not path:
+        return None
+
+    volume = parse_float(raw_audio.get("volume", 0.35), "video.audio.volume")
+    if volume > 2:
+        raise ConfigError("video.audio.volume must be between 0 and 2.")
+    return {
+        "path": path,
+        "volume": volume,
+        "fade_in": parse_float(raw_audio.get("fade_in", 1.0), "video.audio.fade_in"),
+        "fade_out": parse_float(raw_audio.get("fade_out", 2.0), "video.audio.fade_out"),
+        "loop": optional_bool(raw_audio.get("loop"), "video.audio.loop", default=True),
+    }
 
 
 def transform_state(transform: Any) -> dict[str, Any] | None:

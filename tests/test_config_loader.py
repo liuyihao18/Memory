@@ -13,6 +13,11 @@ def _image(path: Path, size: tuple[int, int] = (120, 80)) -> None:
     Image.new("RGB", size, (120, 90, 70)).save(path)
 
 
+def _file(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"test")
+
+
 def test_loads_yaml_and_resolves_relative_photo_paths(tmp_path: Path) -> None:
     _image(tmp_path / "photos" / "001.jpg")
     config_path = tmp_path / "demo.yaml"
@@ -109,6 +114,66 @@ scenes:
     assert photo.transform.x == 0.42
     assert photo.transform.rotation == -5
     assert photo.transform.fit == "contain"
+
+
+def test_loads_global_audio_config(tmp_path: Path) -> None:
+    _image(tmp_path / "photos" / "001.jpg")
+    _file(tmp_path / "music" / "bgm.mp3")
+    config_path = tmp_path / "audio.yaml"
+    config_path.write_text(
+        """
+video:
+  audio:
+    path: "music/bgm.mp3"
+    volume: 0.42
+    fade_in: 1.2
+    fade_out: 2.4
+    loop: false
+scenes:
+  - duration: 4
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.video.audio.path == (tmp_path / "music" / "bgm.mp3").resolve()
+    assert config.video.audio.volume == 0.42
+    assert config.video.audio.fade_in == 1.2
+    assert config.video.audio.fade_out == 2.4
+    assert config.video.audio.loop is False
+
+
+@pytest.mark.parametrize(
+    ("audio_yaml", "extra_file"),
+    [
+        ('path: "music/missing.mp3"', None),
+        ('path: "music/bgm.txt"', "music/bgm.txt"),
+        ('path: "music/bgm.mp3"\n    volume: 2.5', "music/bgm.mp3"),
+    ],
+)
+def test_rejects_invalid_audio_config(tmp_path: Path, audio_yaml: str, extra_file: str | None) -> None:
+    _image(tmp_path / "photos" / "001.jpg")
+    if extra_file:
+        _file(tmp_path / extra_file)
+    config_path = tmp_path / "bad_audio.yaml"
+    config_path.write_text(
+        f"""
+video:
+  audio:
+    {audio_yaml}
+scenes:
+  - duration: 4
+    photos:
+      - path: "photos/001.jpg"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError):
+        load_config(config_path)
 
 
 def test_rejects_missing_photo(tmp_path: Path) -> None:

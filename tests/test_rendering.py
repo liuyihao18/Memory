@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import math
+import struct
+import wave
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageStat
 
-from photo_memory_video.config_loader import PhotoConfig, load_config
+from photo_memory_video.config_loader import AudioConfig, PhotoConfig, load_config
 from photo_memory_video.layout import LayoutSlot, Rect, photo_wall_layout
 from photo_memory_video.photo_card import photo_card_metrics
-from photo_memory_video.render import PHOTO_CARD_SUPERSAMPLE, ProjectRenderer, _card_label_font_size, render_preview_page
+from photo_memory_video.render import PHOTO_CARD_SUPERSAMPLE, ProjectRenderer, _card_label_font_size, _make_audio_clip, render_preview_page
 from photo_memory_video.text_renderer import TextRenderer
 
 
@@ -24,6 +27,20 @@ def _gradient_image(path: Path, size: tuple[int, int]) -> None:
         for x in range(width):
             image.putpixel((x, y), ((x * 255) // width, (y * 255) // height, ((x + y) * 255) // (width + height)))
     image.save(path)
+
+
+def _wav(path: Path, duration: float = 0.2, fps: int = 8000) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame_count = max(1, int(duration * fps))
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(fps)
+        frames = bytearray()
+        for index in range(frame_count):
+            sample = int(9000 * math.sin(2 * math.pi * 220 * index / fps))
+            frames.extend(struct.pack("<h", sample))
+        handle.writeframes(bytes(frames))
 
 
 def test_text_renderer_draws_chinese_caption(tmp_path: Path) -> None:
@@ -67,6 +84,22 @@ scenes:
 
     assert frame.shape == (180, 320, 3)
     assert frame.dtype.name == "uint8"
+
+
+def test_make_audio_clip_loops_and_limits_duration(tmp_path: Path) -> None:
+    audio_path = tmp_path / "music" / "bgm.wav"
+    _wav(audio_path, duration=0.12)
+
+    clip = _make_audio_clip(
+        AudioConfig(path=audio_path, volume=0.5, fade_in=0.04, fade_out=0.04, loop=True),
+        duration=0.35,
+    )
+    try:
+        assert clip is not None
+        assert abs(clip.duration - 0.35) < 0.02
+    finally:
+        if clip is not None:
+            clip.close()
 
 
 def test_render_preview_page_targets_auto_paginated_page(tmp_path: Path) -> None:

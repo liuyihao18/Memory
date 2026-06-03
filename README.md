@@ -16,6 +16,7 @@
 - 中文文字渲染、自动换行、阴影和半透明文字底
 - 场景级缓慢缩放，避免多张照片各自放大造成的不协调
 - 柔和淡入淡出与跨页转场
+- 全局 BGM，支持循环、音量和淡入淡出
 - CLI 渲染 MP4
 - Web UI 编排、预览、文件选择、渲染进度
 - 照片墙图形编辑器，可拖动、缩放、旋转和调整层级
@@ -92,6 +93,7 @@ Web UI 支持：
 - 通过系统文件选择器选择照片、照片目录和输出视频
 - 从本地图片目录批量导入
 - 按场景和自动分页预览当前页
+- 选择全局 BGM，并设置音量、循环、淡入和淡出
 - 渲染 MP4 并显示进度条
 - 保存当前配置到 YAML
 
@@ -141,6 +143,12 @@ video:
   transition_duration: 0.8
   fade_duration: 0.6
   scene_zoom: true
+  audio:
+    path: "music/bgm.mp3"
+    volume: 0.35
+    fade_in: 1.0
+    fade_out: 2.0
+    loop: true
 
 scenes:
   - title: "大一"
@@ -193,6 +201,10 @@ scenes:
 - `fps` 默认是 `30`
 - `duration` 是 scene 时长，单位秒
 - `scene_zoom` 控制整页轻微缩放，默认 `true`
+- `video.audio.path` 配置全局 BGM，路径相对配置文件所在目录解析；留空则不写入音频
+- `video.audio.volume` 控制 BGM 音量，范围 `0` 到 `2`，默认 `0.35`
+- `video.audio.fade_in` / `video.audio.fade_out` 控制 BGM 淡入淡出秒数，默认 `1.0` / `2.0`
+- `video.audio.loop` 默认 `true`，短音频会循环到视频总时长，长音频会裁剪到视频总时长
 - `photos` 可以写单张图片路径，也可以写目录路径
 - 图片路径相对配置文件所在目录解析
 - 程序不会修改原始图片

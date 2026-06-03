@@ -9,6 +9,7 @@ import yaml
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav"}
 DEFAULT_RESOLUTION = (1920, 1080)
 DEFAULT_FPS = 30
 DEFAULT_SCENE_DURATION = 6.0
@@ -65,6 +66,15 @@ class SceneConfig:
 
 
 @dataclass(frozen=True)
+class AudioConfig:
+    path: Path | None = None
+    volume: float = 0.35
+    fade_in: float = 1.0
+    fade_out: float = 2.0
+    loop: bool = True
+
+
+@dataclass(frozen=True)
 class VideoConfig:
     title: str
     resolution: tuple[int, int] = DEFAULT_RESOLUTION
@@ -74,6 +84,7 @@ class VideoConfig:
     fade_duration: float = 0.6
     scene_zoom: bool = True
     font_path: Path | None = None
+    audio: AudioConfig = field(default_factory=AudioConfig)
 
 
 @dataclass(frozen=True)
@@ -129,6 +140,7 @@ def _parse_video(raw: Mapping[str, Any], base_dir: Path) -> VideoConfig:
     fade_duration = _parse_non_negative_float(raw.get("fade_duration", 0.6), "video.fade_duration")
     scene_zoom = _parse_bool(raw.get("scene_zoom", True), "video.scene_zoom")
     font_path = _parse_optional_path(raw.get("font"), base_dir)
+    audio = _parse_audio(raw.get("audio"), base_dir)
 
     return VideoConfig(
         title=title,
@@ -139,7 +151,24 @@ def _parse_video(raw: Mapping[str, Any], base_dir: Path) -> VideoConfig:
         fade_duration=fade_duration,
         scene_zoom=scene_zoom,
         font_path=font_path,
+        audio=audio,
     )
+
+
+def _parse_audio(value: Any, base_dir: Path) -> AudioConfig:
+    if value is None:
+        return AudioConfig()
+    if not isinstance(value, Mapping):
+        raise ConfigError("video.audio must be a mapping.")
+
+    path = _parse_optional_audio_path(value.get("path"), base_dir)
+    volume = _parse_non_negative_float(value.get("volume", 0.35), "video.audio.volume")
+    if volume > 2.0:
+        raise ConfigError("video.audio.volume must be between 0 and 2.")
+    fade_in = _parse_non_negative_float(value.get("fade_in", 1.0), "video.audio.fade_in")
+    fade_out = _parse_non_negative_float(value.get("fade_out", 2.0), "video.audio.fade_out")
+    loop = _parse_bool(value.get("loop", True), "video.audio.loop")
+    return AudioConfig(path=path, volume=volume, fade_in=fade_in, fade_out=fade_out, loop=loop)
 
 
 def _parse_scenes(raw: Any, base_dir: Path) -> tuple[SceneConfig, ...]:
@@ -313,6 +342,20 @@ def _parse_optional_path(value: Any, base_dir: Path) -> Path | None:
     path = _resolve_path(text, base_dir)
     if not path.exists():
         raise ConfigError(f"Font file does not exist: {path}")
+    return path
+
+
+def _parse_optional_audio_path(value: Any, base_dir: Path) -> Path | None:
+    text = _optional_str(value)
+    if not text:
+        return None
+    path = _resolve_path(text, base_dir)
+    if not path.exists():
+        raise ConfigError(f"Audio file does not exist: {path}")
+    if not path.is_file():
+        raise ConfigError(f"Audio path is not a file: {path}")
+    if path.suffix.lower() not in AUDIO_EXTENSIONS:
+        raise ConfigError(f"Unsupported audio type: {path}")
     return path
 
 

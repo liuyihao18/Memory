@@ -27,7 +27,7 @@ function setStatus(text) {
 
 function setBusy(value) {
   busy = value;
-  for (const id of ["saveBtn", "previewBtn", "renderBtn", "addSceneBtn", "chooseOutputBtn", "graphicEditorBtn"]) {
+  for (const id of ["saveBtn", "previewBtn", "renderBtn", "addSceneBtn", "chooseOutputBtn", "chooseAudioBtn", "graphicEditorBtn"]) {
     el(id).disabled = value;
   }
 }
@@ -68,6 +68,7 @@ async function loadProject() {
 
 function render() {
   if (!state) return;
+  state.video.audio = { ...defaultAudio(), ...(state.video.audio || {}) };
   el("configPath").textContent = state.configPath;
   el("outputPath").value = state.outputPath || "";
   el("videoTitle").value = state.video.title || "";
@@ -78,6 +79,11 @@ function render() {
   el("transitionDuration").value = state.video.transition_duration ?? 0.8;
   el("fadeDuration").value = state.video.fade_duration ?? 0.6;
   el("sceneZoom").checked = state.video.scene_zoom !== false;
+  el("audioPath").value = state.video.audio.path || "";
+  el("audioVolume").value = state.video.audio.volume ?? 0.35;
+  el("audioFadeIn").value = state.video.audio.fade_in ?? 1;
+  el("audioFadeOut").value = state.video.audio.fade_out ?? 2;
+  el("audioLoop").checked = state.video.audio.loop !== false;
   renderSceneList();
   renderSceneEditor();
 }
@@ -476,6 +482,7 @@ function smallButton(text, title, onClick, extraClass = "") {
 
 function readVideoForm() {
   state.outputPath = el("outputPath").value.trim();
+  state.video.audio = state.video.audio || defaultAudio();
   state.video.title = el("videoTitle").value.trim();
   state.video.resolution = [Number(el("videoWidth").value), Number(el("videoHeight").value)];
   state.video.fps = Number(el("videoFps").value);
@@ -483,6 +490,11 @@ function readVideoForm() {
   state.video.transition_duration = Number(el("transitionDuration").value);
   state.video.fade_duration = Number(el("fadeDuration").value);
   state.video.scene_zoom = el("sceneZoom").checked;
+  state.video.audio.path = el("audioPath").value.trim();
+  state.video.audio.volume = Number(el("audioVolume").value || 0.35);
+  state.video.audio.fade_in = Number(el("audioFadeIn").value || 0);
+  state.video.audio.fade_out = Number(el("audioFadeOut").value || 0);
+  state.video.audio.loop = el("audioLoop").checked;
 }
 
 function addScene() {
@@ -574,6 +586,21 @@ async function chooseOutputPath() {
     state.outputPath = data.selection.path;
     el("outputPath").value = data.selection.path;
     setStatus("已选择输出");
+  });
+}
+
+async function chooseAudioPath() {
+  readVideoForm();
+  await withBusy("选择背景音乐", async () => {
+    const data = await api("/api/choose-file", { purpose: "audio" });
+    if (!data.selection.path) {
+      setStatus("已取消");
+      return;
+    }
+    state.video.audio = state.video.audio || defaultAudio();
+    state.video.audio.path = data.selection.path;
+    el("audioPath").value = data.selection.path;
+    setStatus("已选择背景音乐");
   });
 }
 
@@ -1153,6 +1180,16 @@ function defaultWall() {
   };
 }
 
+function defaultAudio() {
+  return {
+    path: "",
+    volume: 0.35,
+    fade_in: 1,
+    fade_out: 2,
+    loop: true,
+  };
+}
+
 function setTransform(photo, key, value) {
   photo.transform = photo.transform || {};
   if (value === null || value === "" || Number.isNaN(value)) {
@@ -1214,9 +1251,13 @@ for (const id of ["videoTitle", "videoWidth", "videoHeight", "videoFps", "backgr
     schedulePreview();
   });
 }
+for (const id of ["audioPath", "audioVolume", "audioFadeIn", "audioFadeOut", "audioLoop"]) {
+  el(id).addEventListener("input", readVideoForm);
+}
 el("outputPath").addEventListener("input", readVideoForm);
 el("addSceneBtn").addEventListener("click", addScene);
 el("chooseOutputBtn").addEventListener("click", chooseOutputPath);
+el("chooseAudioBtn").addEventListener("click", chooseAudioPath);
 el("saveBtn").addEventListener("click", save);
 el("previewBtn").addEventListener("click", preview);
 el("renderBtn").addEventListener("click", renderVideo);

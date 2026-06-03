@@ -17,6 +17,7 @@ import yaml
 from PIL import Image, ImageOps
 
 from .config_loader import (
+    AUDIO_EXTENSIONS,
     ConfigError,
     IMAGE_EXTENSIONS,
     PhotoTransform,
@@ -573,7 +574,7 @@ def make_handler(workspace: WebWorkspace) -> type[BaseHTTPRequestHandler]:
             path = workspace.resolve_path(raw_path)
             if not path.is_file():
                 raise WebError(HTTPStatus.NOT_FOUND, "Media file not found.")
-            if path.suffix.lower() not in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
+            if path.suffix.lower() not in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS | AUDIO_EXTENSIONS:
                 raise WebError(HTTPStatus.BAD_REQUEST, "Unsupported media type.")
             self.send_file(path)
 
